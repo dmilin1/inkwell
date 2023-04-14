@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">inkwell</string>
+    <string name="title_activity_main">inkwell</string>
+    <string name="package_name">com.dimitriemilinovich.inkwell</string>
+    <string name="custom_url_scheme">com.dimitriemilinovich.inkwell</string>
+</resources>
