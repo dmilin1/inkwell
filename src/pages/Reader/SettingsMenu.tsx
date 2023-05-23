@@ -6,6 +6,7 @@ import { faChevronLeft, faChevronRight, faListUl } from '@fortawesome/free-solid
 import { KeyboardWrapper } from '../../contexts/KeyboardContext';
 import { ChapterContext } from '../../contexts/ChapterContext';
 import { StatusBarMode } from '../../utils/StatusBar';
+import { FaderTransition } from '../../components/FaderTransition/FaderTransition';
 
 interface SettingType {
   id: keyof Settings,
@@ -166,105 +167,113 @@ export default function SettingsMenu() {
   const [categoryIndex, setCategoryIndex] = useState(0);
 
   return (
-    <div
-      className='w-full h-full absolute z-[20] transition-opacity justify-between pointer-events-none select-none'
-      style={{
-        visibility: isSettingsOpen ? 'visible': 'hidden',
-        opacity: isSettingsOpen ? '1': '0',
-      }}
-    >
-      <div className='pointer-events-auto bg-bg-primary/95 flex-row padding-safe-area-top justify-between'>
-        <div
-          className='w-16 text-center justify-center cursor-pointer'
-          onClick={() => {
-            changeEbook(undefined);
-            setIsSettingsOpen(false);
-          }}
-        >
-          <FontAwesomeIcon className='text-2xl' icon={faChevronLeft} />
-        </div>
-        <div className='h-14 space-b text-center text-lg justify-center'>{metadata?.title}</div>
-        <div
-          className='w-16 text-center justify-center cursor-pointer'
-          onClick={() => {
-            setChapterSelectOpen(true);
-          }}
-        >
-          <FontAwesomeIcon className='text-2xl' icon={faListUl} />
-        </div>
-      </div>
-      <KeyboardWrapper>
-        <div className='pointer-events-auto bg-bg-primary/95 padding-safe-area-bottom'>
-          <div className='flex-row justify-between'>
-            <div
-              className='w-16 text-center justify-center cursor-pointer'
-              onClick={() => setCategoryIndex(categoryIndex > 0 ? categoryIndex - 1 : settingsCategories.length - 1)}
-            >
-              <FontAwesomeIcon className='text-2xl' icon={faChevronLeft} />
+    <div className='w-full h-full absolute z-[20] pointer-events-none select-none'>  
+      <FaderTransition shouldShow={isSettingsOpen} speed={300} style={{
+        width: '100%',
+        height: '100%',
+      }}>
+        <div className='w-full h-full justify-between'>
+          <div>
+            <div className='pointer-events-auto bg-bg-primary/95 flex-row padding-safe-area-top justify-between'>
+              <div
+                className='w-16 text-center justify-center cursor-pointer'
+                onClick={() => {
+                  changeEbook(undefined);
+                  setIsSettingsOpen(false);
+                }}
+              >
+                <FontAwesomeIcon className='text-2xl' icon={faChevronLeft} />
+              </div>
+              <div className='h-14 space-b text-center text-lg justify-center'>{metadata?.title}</div>
+              <div
+                className='w-16 text-center justify-center cursor-pointer'
+                onClick={() => {
+                  setChapterSelectOpen(true);
+                }}
+              >
+                <FontAwesomeIcon className='text-2xl' icon={faListUl} />
+              </div>
             </div>
-            <div className='h-14 space-b text-center text-lg justify-center'>{settingsCategories[categoryIndex].name}</div>
-            <div
-              className='w-16 text-center justify-center cursor-pointer'
-              onClick={() => setCategoryIndex(categoryIndex < settingsCategories.length - 1 ? categoryIndex + 1 : 0)}
-            >
-              <FontAwesomeIcon className='text-2xl' icon={faChevronRight} />
+            <div className='bg-bg-primary h-1'>
+              <div className='bg-text-secondary h-1 transition-[width]' style={{
+                width: `${(metadata?.progress.percentComplete ?? 0) * 100}%`,
+              }}/>
             </div>
           </div>
-          <div className='overflow-auto max-h-[33vh] h-[33vh] md:h-fit'>
-            <div className='grid sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'>
-              {settingsCategories[categoryIndex].settings.map(setting =>
-                <div key={setting.id} className='h-fit flex-row items-center justify-between px-4 py-2 md:py-4'>
-                  <div className='text-lg'>{setting.name}</div>
-                  {setting.type === 'number' &&
-                    <input
-                      className='text-center w-[35%] rounded-lg bg-bg-secondary h-9'
-                      defaultValue={settings[setting.id]}
-                      onBlur={e => {
-                        const low = setting.bounds?.[0] ?? Number.MIN_SAFE_INTEGER;
-                        const high = setting.bounds?.[1] ?? Number.MAX_SAFE_INTEGER;
-                        const num = Math.min(high, Math.max(low, Number(e.target.value)));
-                        changeSettings({ [setting.id]: num });
-                        e.target.value = String(num);
-                      }}
-                      type='number'
-                      inputMode='decimal'
-                    />
-                  }
-                  {setting.type === 'list' &&
-                    <select
-                      className='text-center pl-2 min-w-[35%] h-9 rounded-lg bg-bg-secondary'
-                      value={settings[setting.id]}
-                      onChange={e => changeSettings({ [setting.id]: e.target.value })}
-                    >
-                      {setting.list?.map(option =>
-                        <option
-                          key={option.value}
-                          value={option.value}
-                          style={setting.id === 'fontFamily' ? {
-                            fontFamily: String(option.value)
-                          } : undefined}
-                        >
-                          {option.name}
-                        </option>
-                      )}
-                    </select>
-                  }
-                  {setting.type === 'color' &&
-                    <input
-                      className='w-24 h-9 bg-bg-secondary'
-                      defaultValue={settings[setting.id]}
-                      onBlur={e => {
-                        changeSettings({ [setting.id]: e.target.value });
-                      }}
-                      type='color'
-                    />
-                  }
+          <KeyboardWrapper>
+            <div className='pointer-events-auto bg-bg-primary/95 padding-safe-area-bottom'>
+              <div className='flex-row justify-between'>
+                <div
+                  className='w-16 text-center justify-center cursor-pointer'
+                  onClick={() => setCategoryIndex(categoryIndex > 0 ? categoryIndex - 1 : settingsCategories.length - 1)}
+                >
+                  <FontAwesomeIcon className='text-2xl' icon={faChevronLeft} />
                 </div>
-              )}
+                <div className='h-14 space-b text-center text-lg justify-center'>{settingsCategories[categoryIndex].name}</div>
+                <div
+                  className='w-16 text-center justify-center cursor-pointer'
+                  onClick={() => setCategoryIndex(categoryIndex < settingsCategories.length - 1 ? categoryIndex + 1 : 0)}
+                >
+                  <FontAwesomeIcon className='text-2xl' icon={faChevronRight} />
+                </div>
+              </div>
+              <div className='overflow-auto max-h-[33vh] h-[33vh] md:h-fit'>
+                <div className='grid sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'>
+                  {settingsCategories[categoryIndex].settings.map(setting =>
+                    <div key={setting.id} className='h-fit flex-row items-center justify-between px-4 py-2 md:py-4'>
+                      <div className='text-lg'>{setting.name}</div>
+                      {setting.type === 'number' &&
+                        <input
+                          className='text-center w-[35%] rounded-lg bg-bg-secondary h-9'
+                          defaultValue={settings[setting.id]}
+                          onBlur={e => {
+                            const low = setting.bounds?.[0] ?? Number.MIN_SAFE_INTEGER;
+                            const high = setting.bounds?.[1] ?? Number.MAX_SAFE_INTEGER;
+                            const num = Math.min(high, Math.max(low, Number(e.target.value)));
+                            changeSettings({ [setting.id]: num });
+                            e.target.value = String(num);
+                          }}
+                          type='number'
+                          inputMode='decimal'
+                        />
+                      }
+                      {setting.type === 'list' &&
+                        <select
+                          className='text-center pl-2 min-w-[35%] h-9 rounded-lg bg-bg-secondary'
+                          value={settings[setting.id]}
+                          onChange={e => changeSettings({ [setting.id]: e.target.value })}
+                        >
+                          {setting.list?.map(option =>
+                            <option
+                              key={option.value}
+                              value={option.value}
+                              style={setting.id === 'fontFamily' ? {
+                                fontFamily: String(option.value)
+                              } : undefined}
+                            >
+                              {option.name}
+                            </option>
+                          )}
+                        </select>
+                      }
+                      {setting.type === 'color' &&
+                        <input
+                          className='w-24 h-9 bg-bg-secondary'
+                          defaultValue={settings[setting.id]}
+                          onBlur={e => {
+                            changeSettings({ [setting.id]: e.target.value });
+                          }}
+                          type='color'
+                        />
+                      }
+                    </div>
+                  )}
+                </div>
+              </div>
             </div>
-          </div>
+          </KeyboardWrapper>
         </div>
-      </KeyboardWrapper>
+      </FaderTransition>
     </div>
   )
 }

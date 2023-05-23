@@ -21,7 +21,7 @@ export function ScrollPull({ children, pulledUp, pulledDown }: React.PropsWithCh
     const [topMargin, setTopMargin] = useState(0);
     const [bottomMargin, setBottomMargin] = useState(0);
 
-    const dragActionLimit = 130;
+    const dragActionLimit = 100;
 
     return (
         <div

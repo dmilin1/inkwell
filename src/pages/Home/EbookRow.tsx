@@ -14,7 +14,7 @@ function EbookRow({ sectionTitle, bookData }: EbookRowProps) {
   return (
     <div className='mt-5'>
       <div className='mx-5 text-xl'>{sectionTitle}</div>
-      <div className='flex-row items-center overflow-x-scroll space-x-8 p-5 scrollbar-hide'>
+      <div className='flex-row items-center overflow-x-scroll space-x-6 px-5 py-3 md:py-5 scrollbar-hide'>
         {bookData?.map((metadata: Metadata) => 
           <div
             onClick={async () => {
@@ -22,7 +22,7 @@ function EbookRow({ sectionTitle, bookData }: EbookRowProps) {
               changeEbook(books[metadata?.filePath]);
             }}
             key={metadata.filePath}
-            className='min-w-[7rem] max-w-[7rem] min-h-[10rem] bg-bg-secondary rounded-xl bg-[size:100%_100%] cursor-pointer justify-center text-center'
+            className='min-w-[6.3rem] max-w-[6.3rem] min-h-[9rem] md:min-w-[7rem] md:max-w-[7rem] md:min-h-[10rem] bg-bg-secondary rounded-xl bg-[size:100%_100%] cursor-pointer justify-center text-center'
             style={{
               backgroundImage: `url('${metadata.coverImgPath}')`
             }}

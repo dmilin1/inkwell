@@ -6,10 +6,12 @@ type EbookContext = {
     ebook?: Ebook,
     metadata?: Metadata,
     changeEbook: (newEbook?: Ebook) => void,
+    refreshProgress: () => void,
 };
 
 export const EbookContext = createContext<EbookContext>({
     changeEbook: () => {},
+    refreshProgress: () => {},
 });
 
 export function EbookProvider({ children }: React.PropsWithChildren) {
@@ -22,12 +24,23 @@ export function EbookProvider({ children }: React.PropsWithChildren) {
         setEbook(newEbook);
         newEbook?.setStats({ lastOpenedAt: Date.now() });
     }
+
+    const refreshProgress = async () => {
+        if (ebook && metadata) {
+            let spot = await ebook.loadSpot();
+            setMetadata({
+                ...metadata,
+                progress: spot,
+            });
+        }
+    }
     
     return (
         <EbookContext.Provider value={{
             ebook,
             metadata,
             changeEbook,
+            refreshProgress,
         }}>
             {children}
         </EbookContext.Provider>

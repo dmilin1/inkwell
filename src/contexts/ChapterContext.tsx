@@ -16,7 +16,7 @@ interface ChapterContext {
     setChapterSelectOpen: (newVal: boolean) => void,
     setChapterIndex: (index: number) => void,
     saveSpot: () => Promise<void>,
-    loadSpot: () => Promise<SaveSpot|null>,
+    loadSpot: () => Promise<SaveSpot|undefined>,
 };
 
 export const ChapterContext = createContext<ChapterContext>({
@@ -30,7 +30,7 @@ export const ChapterContext = createContext<ChapterContext>({
 });
 
 export function ChapterProvider({ children }: React.PropsWithChildren) {
-    const { ebook } = useContext(EbookContext);
+    const { ebook, refreshProgress } = useContext(EbookContext);
 
     const [chapters, setChapters] = useState<Chapters>();
     const [chapterIndex, setChapterIndex] = useState<number>();
@@ -59,9 +59,10 @@ export function ChapterProvider({ children }: React.PropsWithChildren) {
             scrollHeight: scrollHeight ?? 0,
             percentComplete: calcProgressPercent(),
         });
+        refreshProgress();
     }
 
-    const loadSpot = async (): Promise<SaveSpot|null> => {
+    const loadSpot = async (): Promise<SaveSpot|undefined> => {
         return await ebook?.loadSpot();
     }
 

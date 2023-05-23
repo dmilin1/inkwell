@@ -43,7 +43,7 @@ const defaultSettings: Settings = {
 type SettingsContext = {
     settings: Settings,
     changeSettings: (newSettings: Partial<Settings>) => void,
-    isSettingsOpen: Boolean,
+    isSettingsOpen: boolean,
     setIsSettingsOpen: Dispatch<SetStateAction<boolean>>,
 };
 

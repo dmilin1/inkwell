@@ -13,7 +13,6 @@ export interface Ebook {
 export type Stats = {
     addedAt: number;
     lastOpenedAt: number;
-    percentComplete: number;
 }
 
 export type Metadata = {
@@ -70,7 +69,6 @@ export class Ebook implements Ebook {
         const defaultStats: Stats = {
             addedAt: Date.now(),
             lastOpenedAt: 0,
-            percentComplete: 0
         };
         return {
             ...defaultStats,
@@ -93,12 +91,17 @@ export class Ebook implements Ebook {
         await Preferences.set({ key, value: JSON.stringify(data) });
     }
 
-    async loadSpot() {
+    async loadSpot(): Promise<SaveSpot> {
         const key = `${this.filePath}-saveSpot`;
         const str = (await Preferences.get({ key })).value;
         if (str) {
             return JSON.parse(str);
         }
-        return null;
+        const defaultSpot: SaveSpot = {
+            chapterIndex: 0,
+            scrollHeight: 0,
+            percentComplete: 0,
+        };
+        return defaultSpot;
     }
 }
