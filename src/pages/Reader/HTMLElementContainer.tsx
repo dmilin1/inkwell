@@ -133,7 +133,7 @@ export function HTMLElementContainer() {
   }
 
   useEffect(() => {
-    if (htmlContainer.current?.innerText) {
+    if (htmlContainer.current?.children) {
       htmlContainer.current.style.opacity = '1';
     }
   });

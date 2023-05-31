@@ -186,7 +186,10 @@ class EpubChapter implements Chapter {
         // Object.entries(this.epub.manifestBlobs!).forEach(([file, blob]) => {
         //     text = text.replaceAll(file, blob);
         // })
-        const html = $(`<div>${text}</div>`);
+        const parser = new DOMParser();
+        const htmlDoc = parser.parseFromString(text, 'text/xml');
+        const html = $(htmlDoc).find('html').children();
+        console.log(html)
         html.find('a[href]').each((_, elem) => {
             const baseLink = Helpers.parseFile($(elem).attr('href')!);
             const isInManifest = Object.keys(this.epub.manifestBlobs!).find(path =>

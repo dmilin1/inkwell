@@ -17,15 +17,15 @@
   -webkit-text-size-adjust: 100%;
 }
 
-body {
+html > body {
   margin: 0;
 }
 
-#root {
+html > body > #root {
   height: calc(100vh - env(safe-area-inset-top));
 }
 
-body, #root {
+html > body, html > body > #root {
   background-color: #282b41;
   flex: 1;
 }
