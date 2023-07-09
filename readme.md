@@ -2,6 +2,10 @@
   <img src="https://github.com/dmilin1/inkwell/blob/master/icons/icon-96.webp?raw=true" />
 </p>
 
+<p align="center">
+  <a href="https://apps.apple.com/us/app/inkwell-customizable-ebooks/id6449137260" target="_blank">Apple App Store<a>
+</p>
+
 Inkwell is a truly free ebook reader designed for readers who crave a highly customizable experience. Immerse yourself in the most popular books of the moment with a personalized reading experience like no other. With a wide range of customizable options, including font styles, sizes, and colors, Inkwell allows you to tailor your reading environment to perfection. Best of all, Inkwell is completely free, offering an exceptional reading experience without any hidden costs.
 
 Inkwell goes beyond other ebook readers with its remarkable level of customization. Adjust the font size, weight, and spacing to find your perfect reading comfort. Fine-tune margins, paragraph spacing, and even explore a wide range of captivating colors. The power is in your hands to create a reading experience as unique as you are.
