@@ -105,6 +105,14 @@ export function HTMLElementContainer() {
         Object.assign(elem.style, styles)
       );
     }
+    /**
+     * This next line fixes a bug on safari where the parent scroll container
+     * will become unscrollable because the browser thinks the content is still
+     * too small to scroll. getBoundingClientRect() forces the browser to trigger
+     * a reflow and recalculate the scroll height. Then we console log it so
+     * our transpiler doesn't remove it.
+     */
+    /* DO NOT REMOVE */console.log(ref.getBoundingClientRect());/* DO NOT REMOVE */
     const spot = await loadSpot();
     if ((chapterIndex ?? 0) - (prevChapterIndex ?? 0) === -1) {
       outerContainer.current?.scrollTo({ top: Number.MAX_VALUE });
