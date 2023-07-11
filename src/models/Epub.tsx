@@ -41,7 +41,8 @@ export default class Epub extends Ebook {
         const tocId = this.rootFile!.package.spine.attribute('toc');
         const tocFilePath = this.manifest?.[tocId];
         const tocFile = await this.readXML(this.rootFileFolderPath! + tocFilePath);
-        const orderedChapters = tocFile.ncx.navMap.items().map((chapter: EzXML, i: number) => 
+        const flattenedNavMap = this.flattenNavMap(tocFile.ncx.navMap);
+        const orderedChapters = flattenedNavMap.map((chapter: EzXML, i: number) => 
             new EpubChapter(
                 this,
                 chapter.navLabel.text.innerText,
@@ -126,6 +127,19 @@ export default class Epub extends Ebook {
         const xml = await this.zip!.file(filepath)!.async('text');
         const xmlObj = xml2js(xml);
         return new EzXML(xmlObj as Element);
+    }
+
+    private flattenNavMap(navItem: EzXML): EzXML[] {
+        const items = [];
+        if (navItem.navLabel && navItem.content) {
+            items.push(navItem);
+        }
+        navItem.items().forEach(item => {
+            if (item.name == 'navPoint') {
+                items.push(...this.flattenNavMap(item));
+            }
+        });
+        return items;
     }
 }
 

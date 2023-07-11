@@ -2,6 +2,7 @@ import { Preferences } from '@capacitor/preferences';
 
 export interface Ebook {
     filePath: string;
+    builtIn: boolean;
     base64?: string;
 
     loadMetadata(): Promise<Metadata>;
@@ -13,6 +14,7 @@ export interface Ebook {
 export type Stats = {
     addedAt: number;
     lastOpenedAt: number;
+    deleted: boolean; // only used by built-in books
 }
 
 export type Metadata = {
@@ -55,10 +57,12 @@ export interface SaveSpot {
 
 export class Ebook implements Ebook {
     filePath: string;
+    builtIn: boolean;
     base64?: string;
 
     constructor(filePath: string, blob?: string) {
         this.filePath = filePath;
+        this.builtIn = !blob;
         this.base64 = blob;
     }
 
@@ -69,6 +73,7 @@ export class Ebook implements Ebook {
         const defaultStats: Stats = {
             addedAt: Date.now(),
             lastOpenedAt: 0,
+            deleted: false,
         };
         return {
             ...defaultStats,

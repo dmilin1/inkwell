@@ -7,6 +7,7 @@ import { KeyboardProvider } from './contexts/KeyboardContext';
 import { ChapterProvider } from './contexts/ChapterContext';
 
 import './resources/fonts/fonts';
+import { LibraryProvider } from './contexts/LibraryContext';
 
 function App() {
   const { ebook } = useContext(EbookContext);
@@ -18,9 +19,11 @@ function ContextWrappedApp() {
   return (
     <SettingsProvider>
       <KeyboardProvider>
-        <EbookProvider>
-            <App/>
-        </EbookProvider>
+        <LibraryProvider>
+          <EbookProvider>
+              <App/>
+          </EbookProvider>
+        </LibraryProvider>
       </KeyboardProvider>
     </SettingsProvider>
   );

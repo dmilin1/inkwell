@@ -1,8 +1,8 @@
 import { Ebook } from './Ebook';
 import { EbookLoader } from "./EbookLoader";
 import includedBooks from '../resources/ebooks/ebooks';
-import { Filesystem, Directory, Encoding } from '@capacitor/filesystem';
-import { Files } from '../utils/Files';
+import { Filesystem, Directory } from '@capacitor/filesystem';
+import { ActionSheet, ActionSheetButtonStyle } from '@capacitor/action-sheet';
 
 export type Ebooks = {
     [id: string]: Ebook;
@@ -21,8 +21,11 @@ export default class Library {
         }
         const addedBooks = (await Library.getBookFiles())
             .map(file => EbookLoader.new(file.fileName, file.base64));
-        const inclBooks = includedBooks
+        let inclBooks = includedBooks
             .map(file => EbookLoader.new(file));
+        const deleted = (await Promise.all(inclBooks.map(async (book) => book.getStats())))
+            .map(stats => stats.deleted);
+        inclBooks = inclBooks.filter((_, i) => !deleted[i]);
         const books = [...addedBooks, ...inclBooks];
         Library.books = books.reduce((obj, book) => ({
             ...obj,
@@ -43,6 +46,33 @@ export default class Library {
             directory: Directory.Library,
             recursive: true,
         });
+    }
+
+    static async promptToDeleteBook(filePath: string): Promise<boolean> {
+        const result = await ActionSheet.showActions({
+            title: 'Book Options',
+            message: 'Select an option to perform',
+            options: [{
+                title: 'Delete From Libary',
+            }, {
+                title: 'Cancel',
+                style: ActionSheetButtonStyle.Cancel,
+            }],
+        });
+        if (result.index === 0) {
+            const book = Library.books[filePath];
+            console.log(book);
+            if (book.builtIn) {
+                await book.setStats({ deleted: true });
+            } else {
+                await Filesystem.deleteFile({
+                    path: `${Library.PATH}${filePath}`,
+                    directory: Directory.Library,
+                });
+            }
+            return true;
+        }
+        return false;
     }
 
     private static async getBookFiles() {

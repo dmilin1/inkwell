@@ -1,46 +1,29 @@
-import { useEffect, useState } from 'react';
-import Library from '../../models/Library.js'
+import { useContext, useState } from 'react';
 import { faPlus, faCloudArrowUp } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { Metadata } from '../../models/Ebook.js';
 import { StatusBar, StatusBarMode } from '../../utils/StatusBar.js';
-import { Files } from '../../utils/Files.js';
 import EbookRow from './EbookRow.js';
 import EbookChunk from './EbookChunk.js';
+import { LibraryContext } from '../../contexts/LibraryContext.js';
 
 
 function Home() {
-  const [ebooksMetadata, setEbooksMetadata] = useState<Metadata[]>();
+  const { libraryLoading, ebooksMetadata, promptToAddBook } = useContext(LibraryContext);
+  
   const [search, setSearch] = useState<string>('');
 
   StatusBar.set(StatusBarMode.Dark);
 
-  const loadEbooks = async (reload = false) => {
-    const ebooks = await Library.getBooks(reload);
-    const metadata = await Promise.all(
-        Object.values(ebooks).map(ebook => ebook.loadMetadata())
-    );
-    setEbooksMetadata(metadata);
-  }
-
-  useEffect(() => {
-    loadEbooks();
-  }, []);
-
   return (
     <div className='max-h-full margin-safe-area-top select-none'>
-      { ebooksMetadata ? (
+      { !libraryLoading ? (
         <>
           <div className='m-5 md:flex-row'>
             <div className='text-3xl border-r-1 font-bold flex-row justify-between'>
               <div className='justify-center'>My Collection</div>
               <div
                 className='bg-bg-secondary w-10 h-10 rounded-lg justify-center cursor-pointer md:hidden'
-                onClick={async () => {
-                  let file = await Files.promptForFile();
-                  await Library.addToLibrary(file);
-                  loadEbooks(true);
-                }}
+                onClick={() => promptToAddBook()}
               >
                 <FontAwesomeIcon className='text-2xl' icon={faPlus} />
               </div>
@@ -53,17 +36,12 @@ function Home() {
             />
             <div
               className='bg-bg-secondary space-x-3 flex-row p-3 rounded-lg ml-auto justify-center items-center cursor-pointer hidden md:flex'
-              onClick={async () => {
-                let file = await Files.promptForFile();
-                Library.addToLibrary(file);
-                await Library.addToLibrary(file);
-                loadEbooks(true);
-              }}
+              onClick={() => promptToAddBook()}
             >
               <FontAwesomeIcon className='text-lg' icon={faCloudArrowUp} /><span>Add Book</span>
             </div>
           </div>
-          <div className='overflow-scroll scrollbar-hide'>
+          <div className='overflow-scroll scrollbar-hide pb-5'>
             {search ? (
               <EbookChunk
                 sectionTitle='Results'
