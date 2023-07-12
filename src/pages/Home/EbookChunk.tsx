@@ -41,7 +41,8 @@ function EbookChunk({ sectionTitle, bookData }: EbookChunkProps) {
               <div className='grow pt-2 pb-5'>
                 <div className=''>{metadata.title}</div>
                 <div className='grow text-text-secondary'>By {metadata.author}</div>
-                <div className='text-text-secondary text-sm line-clamp-2'>{metadata.subjects?.join(', ')}</div>
+                {/* Next line must have "visible" to make line clamp work due to Safari bug: https://stackoverflow.com/a/61474324 */}
+                <div className='text-text-secondary text-sm line-clamp-2 visible'>{metadata.subjects?.join(', ')}</div>
               </div>
               <div className='justify-center'>
                 <div

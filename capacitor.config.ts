@@ -13,7 +13,10 @@ const config: CapacitorConfig = {
   plugins: {
     Keyboard: {
       resize: 'native',
-    }
+    },
+    SplashScreen: {
+      launchAutoHide: false,
+    },
   },
   loggingBehavior: 'none',
 };

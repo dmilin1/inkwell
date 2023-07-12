@@ -1,3 +1,4 @@
+import { App } from "@capacitor/app";
 import { useState, useEffect } from "react";
 
 interface ClickAndHoldProps {
@@ -7,7 +8,7 @@ interface ClickAndHoldProps {
     style?: React.CSSProperties,
 }
 
-export function ClickAndHold({ children, style, onClick, onClickAndHold, delay = 350 }: React.PropsWithChildren<ClickAndHoldProps>) {
+export function ClickAndHold({ children, style, onClick, onClickAndHold, delay = 400 }: React.PropsWithChildren<ClickAndHoldProps>) {
     const [isHolding, setIsHolding] = useState(false);
     const [timeDownAt, setTimeDownAt] = useState(0);
 
@@ -22,6 +23,16 @@ export function ClickAndHold({ children, style, onClick, onClickAndHold, delay =
             return () => clearTimeout(timeoutId);
         }
     }, [isHolding]);
+
+    useEffect(() => {
+        /** Fixes a problem where hold events will trigger while moving the app into the background */
+        const listener = App.addListener('appStateChange', () => {
+            setIsHolding(false);
+            setTimeDownAt(0);
+        });
+        const cleanup = async () => (await listener).remove();
+        return () => { cleanup() };
+    }, []);
 
     return (
         <div

@@ -50,8 +50,6 @@ export default class Library {
 
     static async promptToDeleteBook(filePath: string): Promise<boolean> {
         const result = await ActionSheet.showActions({
-            title: 'Book Options',
-            message: 'Select an option to perform',
             options: [{
                 title: 'Delete From Libary',
             }, {
