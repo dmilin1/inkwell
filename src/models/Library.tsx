@@ -59,7 +59,6 @@ export default class Library {
         });
         if (result.index === 0) {
             const book = Library.books[filePath];
-            console.log(book);
             if (book.builtIn) {
                 await book.setStats({ deleted: true });
             } else {

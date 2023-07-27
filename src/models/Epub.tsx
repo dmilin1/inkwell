@@ -21,11 +21,15 @@ export default class Epub extends Ebook {
         const metadataObj = this.rootFile!.package.metadata
         const metadata = {
             filePath: this.filePath,
-            title: metadataObj?.['dc:title']?.innerText,
-            author: metadataObj?.['dc:creator']?.innerText,
-            language: metadataObj?.['dc:language']?.innerText,
-            date: metadataObj?.['dc:date']?.innerText,
-            description: metadataObj?.['dc:description']?.innerText,
+            title: metadataObj?.elems('dc:title')?.[0].innerText,
+            author: metadataObj?.elems('dc:creator')
+                ?.map((elem: EzXML) => elem.innerText)
+                .join(' & '),
+            language: metadataObj?.elems('dc:language')
+                ?.map((elem: EzXML) => elem.innerText)
+                .join(', '),
+            date: metadataObj?.elems('dc:language')?.[0]?.innerText,
+            description: metadataObj?.elems('dc:description')?.[0]?.innerText,
             subjects: metadataObj.items()
                 .filter((e: EzXML) => e.name === 'dc:subject')
                 .map((e: EzXML) => e.innerText),
@@ -289,7 +293,8 @@ class EzXML {
                 return undefined;
             }
             if (elems?.length > 1) {
-                throw `xml object has more than one element matching "${key as string}"`;
+                console.error(`xml object has more than one element matching "${key as string}". Returning first item.`);
+                return elems[0];
             }
             return new EzXML(elems[0]);
         }});
@@ -301,6 +306,13 @@ class EzXML {
 
     items(): EzXML[] {
         return this.xml.elements?.map(e => new EzXML(e)) ?? [];
+    }
+
+    elems(str?: string): EzXML[] {
+        return this.xml.elements
+            ?.filter(elem => str === undefined || elem.name === str)
+            ?.map(elem => new EzXML(elem))
+            ?? [];
     }
 }
 
