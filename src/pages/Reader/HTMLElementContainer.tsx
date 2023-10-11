@@ -4,6 +4,7 @@ import { ChapterContext } from "../../contexts/ChapterContext";
 import { StatusBar } from "../../utils/StatusBar";
 import { ScrollPull } from "../../components/ScrollPull/ScrollPull";
 import { useDebounce } from "../../utils/Debounce";
+import SafeArea from "../../utils/SafeArea";
 
 export function HTMLElementContainer() {
   const {
@@ -14,6 +15,8 @@ export function HTMLElementContainer() {
 
   const outerContainer = useRef<HTMLDivElement>(null);
   const htmlContainer = useRef<HTMLDivElement>();
+
+  const textIsHighlighted = useRef(false);
 
   const {
     fontFamily, fontSize, fontWeight, lineSpacing, wordSpacing, letterSpacing,
@@ -47,7 +50,7 @@ export function HTMLElementContainer() {
     zIndex: 10,
     color: fontColor,
     fontFamily,
-    overflow: 'scroll',
+    overflow: settings.readingMode === 'scrolling' ? 'scroll' : 'hidden',
     height: `calc(100vh - ${2*verticalMargins}px)`,
     display: 'block',
     // 'background-image': 'url("https://www.tilingtextures.com/wp-content/uploads/2018/11/0066-768x768.jpg")',
@@ -159,6 +162,10 @@ export function HTMLElementContainer() {
     return () => document.removeEventListener('keydown', handleKeydown);
   }, []);
 
+  useEffect(() => {
+    saveSpot();
+  }, [outerContainer.current]);
+
   const debouncedScroll = useDebounce('scroll-save', 250, () => {
     saveSpot();
   });
@@ -170,13 +177,40 @@ export function HTMLElementContainer() {
         ref={outerContainer}
         className='padding-safe-area-top overscroll-none'
         style={outerContainerStyles as StyleHTMLAttributes<any>}
-        onClick={() => setIsSettingsOpen((prevState) => !prevState)}
+        onTouchStart={e => {
+          textIsHighlighted.current = !!document.getSelection()?.toString();
+        }}
+        onClick={e => {
+          if (textIsHighlighted.current || document.getSelection()?.toString()) {
+            return
+          }
+          if (settings.readingMode === 'paginated') {
+            const containerBounds = outerContainer.current?.getBoundingClientRect();
+            const containerScroll = outerContainer.current?.scrollTop ?? 0;
+            const touchWidth = containerBounds?.width ?? 0;
+            const pageHeight = (containerBounds?.height ?? 0) - 2 * settings.verticalMargins;
+            const pageHeightBuffer = SafeArea.top + SafeArea.bottom;
+            const edgeTouchSize = touchWidth / 4;
+            const touchX = e.pageX;
+            if (touchX < edgeTouchSize) {
+              outerContainer.current?.scrollTo({ top: containerScroll - pageHeight + pageHeightBuffer });
+              return;
+            }
+            if (touchX > touchWidth - edgeTouchSize) {
+              outerContainer.current?.scrollTo({ top: containerScroll + pageHeight - pageHeightBuffer });
+              return;
+            }
+          }
+          setIsSettingsOpen((prevState) => !prevState);
+        }}
         onScroll={() => debouncedScroll.current?.()}
         tabIndex={0}
       >
         <ScrollPull
-          pulledUp={() => changeChapter(chapterIndex! - 1)}
+          pulledUp={() => changeChapter(chapterIndex! - 1) }
           pulledDown={() => changeChapter(chapterIndex! + 1)}
+          atBeginning={chapterIndex === 0}
+          atEnd={chapterIndex === numberOfChapters - 1}
         >
           <div
             ref={buildElements}

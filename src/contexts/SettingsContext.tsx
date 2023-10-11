@@ -8,6 +8,7 @@ export type Settings = {
     fontSize: number,
     fontWeight: string,
 
+    readingMode: 'scrolling'|'paginated',
     lineSpacing: number,
     wordSpacing: number,
     letterSpacing: number,
@@ -26,6 +27,7 @@ const defaultSettings: Settings = {
     fontSize: 18,
     fontWeight: '400',
 
+    readingMode: 'scrolling',
     lineSpacing: 1.25,
     wordSpacing: 1,
     letterSpacing: 1,

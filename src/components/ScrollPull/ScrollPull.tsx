@@ -10,9 +10,11 @@ interface Coordinate {
 interface ScrollPullProps {
     pulledUp?: () => void;
     pulledDown?: () => void;
+    atBeginning?: boolean;
+    atEnd?: boolean;
 }
 
-export function ScrollPull({ children, pulledUp, pulledDown }: React.PropsWithChildren<ScrollPullProps>) {
+export function ScrollPull({ children, pulledUp, pulledDown, atBeginning, atEnd }: React.PropsWithChildren<ScrollPullProps>) {
     const scrollContainer = useRef<HTMLInputElement>(null);
     const topSection = useRef<HTMLInputElement>(null);
     const bottomSection = useRef<HTMLInputElement>(null);
@@ -81,15 +83,19 @@ export function ScrollPull({ children, pulledUp, pulledDown }: React.PropsWithCh
                     transition: !topMargin ? 'margin-top 0.25s ease-out' : undefined,
                 }}
             >
-                <FontAwesomeIcon
-                    icon={topMargin < dragActionLimit ? faArrowDown : faSpinner}
-                    className={topMargin < dragActionLimit ? 'animate-bounce' : 'animate-spin'}
-                />
-                <span className='px-4'>Previous Chapter</span>
-                <FontAwesomeIcon
-                    icon={topMargin < dragActionLimit ? faArrowDown : faSpinner}
-                    className={topMargin < dragActionLimit ? 'animate-bounce' : 'animate-spin'}
-                />
+                { !atBeginning && 
+                    <>
+                        <FontAwesomeIcon
+                            icon={topMargin < dragActionLimit ? faArrowDown : faSpinner}
+                            className={topMargin < dragActionLimit ? 'animate-bounce' : 'animate-spin'}
+                        />
+                        <span className='px-4'>Previous Chapter</span>
+                        <FontAwesomeIcon
+                            icon={topMargin < dragActionLimit ? faArrowDown : faSpinner}
+                            className={topMargin < dragActionLimit ? 'animate-bounce' : 'animate-spin'}
+                        />
+                    </>
+                }
             </div>
             {children}
             <div
@@ -101,15 +107,27 @@ export function ScrollPull({ children, pulledUp, pulledDown }: React.PropsWithCh
                     transition: !bottomMargin ? 'margin-top 0.25s ease-out' : undefined,
                 }}
             >
-                <FontAwesomeIcon
-                    icon={bottomMargin < dragActionLimit ? faArrowUp : faSpinner}
-                    className={bottomMargin < dragActionLimit ? 'animate-bounce' : 'animate-spin'}
-                />
-                <span className='px-4'>Next Chapter</span>
-                <FontAwesomeIcon
-                    icon={bottomMargin < dragActionLimit ? faArrowUp : faSpinner}
-                    className={bottomMargin < dragActionLimit ? 'animate-bounce' : 'animate-spin'}
-                />
+                { !atEnd &&
+                    <>
+                        <FontAwesomeIcon
+                            icon={bottomMargin < dragActionLimit ? faArrowUp : faSpinner}
+                            className={bottomMargin < dragActionLimit ? 'animate-bounce' : 'animate-spin'}
+                        />
+                        <span
+                            className='px-4 underline'
+                            onClick={e => {
+                                e.stopPropagation();
+                                pulledDown?.();
+                            }}
+                        >
+                            Next Chapter
+                        </span>
+                        <FontAwesomeIcon
+                            icon={bottomMargin < dragActionLimit ? faArrowUp : faSpinner}
+                            className={bottomMargin < dragActionLimit ? 'animate-bounce' : 'animate-spin'}
+                        />
+                    </>
+                }
             </div>
         </div>
     )

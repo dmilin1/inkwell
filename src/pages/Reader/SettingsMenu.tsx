@@ -11,7 +11,7 @@ import { FaderTransition } from '../../components/FaderTransition/FaderTransitio
 interface SettingType {
   id: keyof Settings,
   name: string,
-  type: string,
+  type: 'list'|'number'|'color',
   bounds?: [number?, number?],
   list?: {
     name: string,
@@ -88,6 +88,17 @@ const textSettings: SettingType[] = [{
 }];
 
 const layoutSettings: SettingType[] = [{
+  id: 'readingMode',
+  name: 'Reading Mode',
+  type: 'list',
+  list: [{
+    name: 'Scrolling',
+    value: 'scrolling',
+  }, {
+    name: 'Paginated',
+    value: 'paginated',
+  }]
+}, { 
   id: 'lineSpacing',
   name: 'Line Spacing (px)',
   type: 'number',
