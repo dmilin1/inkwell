@@ -30,7 +30,7 @@ export const ChapterContext = createContext<ChapterContext>({
 });
 
 export function ChapterProvider({ children }: React.PropsWithChildren) {
-    const { ebook, refreshProgress } = useContext(EbookContext);
+    const { ebook, refreshProgress, changeEbook } = useContext(EbookContext);
 
     const [chapters, setChapters] = useState<Chapters>();
     const [chapterIndex, setChapterIndex] = useState<number>();
@@ -43,13 +43,18 @@ export function ChapterProvider({ children }: React.PropsWithChildren) {
 
     const loadChapter = async (index: number) => {
         setChapters(undefined);
-        let ebookChapters = await ebook?.loadChapters();
-        const chapter = ebookChapters?.index(index)!;
-        const html = await chapter?.loadHTML({
-            changeChapter: (newChapter) => setChapterIndex(newChapter.index),
-        });
-        setHTML(html);
-        setChapters(ebookChapters);
+        try {
+            let ebookChapters = await ebook?.loadChapters();
+            const chapter = ebookChapters?.index(index)!;
+            const html = await chapter?.loadHTML({
+                changeChapter: (newChapter) => setChapterIndex(newChapter.index),
+            });
+            setHTML(html);
+            setChapters(ebookChapters);
+        } catch (e) {
+            alert('Ebook failed to load: ' + e);
+            changeEbook(undefined);
+        }
     }
 
     const saveSpot = async () => {
