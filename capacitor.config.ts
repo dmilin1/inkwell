@@ -6,10 +6,10 @@ const config: CapacitorConfig = {
   webDir: 'dist',
   backgroundColor: '#282b41',
   bundledWebRuntime: false,
-  // server: {
-  //   url: 'http://192.168.50.143:5173',
-  //   cleartext: true
-  // },
+  server: {
+    url: 'http://192.168.50.143:5173',
+    cleartext: true
+  },
   plugins: {
     Keyboard: {
       resize: 'native',
@@ -17,6 +17,9 @@ const config: CapacitorConfig = {
     SplashScreen: {
       launchAutoHide: false,
     },
+  },
+  ios: {
+    webContentsDebuggingEnabled: true
   },
   loggingBehavior: 'none',
 };
