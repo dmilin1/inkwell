@@ -1,11 +1,12 @@
 import { createContext, useState } from 'react';
 import { Ebook, Metadata } from '../models/Ebook';
+import { LoadLibraryParams } from './LibraryContext';
 
 
 type EbookContext = {
     ebook?: Ebook,
     metadata?: Metadata,
-    changeEbook: (newEbook?: Ebook) => void,
+    changeEbook: (newEbook?: Ebook, loadOptions?: LoadLibraryParams) => void,
     refreshProgress: () => void,
 };
 
@@ -18,8 +19,8 @@ export function EbookProvider({ children }: React.PropsWithChildren) {
     const [ebook, setEbook] = useState<Ebook | undefined>();
     const [metadata, setMetadata] = useState<Metadata | undefined>();
 
-    const changeEbook = async (newEbook?: Ebook) => {
-        const newMetadata = newEbook ? await newEbook.loadMetadata() : undefined;
+    const changeEbook = async (newEbook?: Ebook, loadOptions: LoadLibraryParams = {}) => {
+        const newMetadata = newEbook ? await newEbook.loadMetadata(loadOptions) : undefined;
         setMetadata(newMetadata);
         setEbook(newEbook);
         newEbook?.setStats({ lastOpenedAt: Date.now() });

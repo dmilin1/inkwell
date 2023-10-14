@@ -7,6 +7,7 @@ import { KeyboardWrapper } from '../../contexts/KeyboardContext';
 import { ChapterContext } from '../../contexts/ChapterContext';
 import { StatusBarMode } from '../../utils/StatusBar';
 import { FaderTransition } from '../../components/FaderTransition/FaderTransition';
+import { LibraryContext } from '../../contexts/LibraryContext';
 
 interface SettingType {
   id: keyof Settings,
@@ -174,6 +175,7 @@ export default function SettingsMenu() {
   const { settings, changeSettings, isSettingsOpen, setIsSettingsOpen } = useContext(SettingsContext);
   const { metadata, changeEbook } = useContext(EbookContext);
   const { setChapterSelectOpen } = useContext(ChapterContext);
+  const { loadEbooks } = useContext(LibraryContext);
 
   const [categoryIndex, setCategoryIndex] = useState(0);
 
@@ -191,6 +193,7 @@ export default function SettingsMenu() {
                 onClick={() => {
                   changeEbook(undefined);
                   setIsSettingsOpen(false);
+                  setTimeout(() => loadEbooks({ reloadStatsOnly: true }), 100);
                 }}
               >
                 <FontAwesomeIcon className='text-2xl' icon={faChevronLeft} />

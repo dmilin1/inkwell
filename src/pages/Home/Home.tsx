@@ -40,7 +40,7 @@ function Home() {
         </div>
       </FaderTransition>
       <FaderTransition
-        shouldShow={intialLoadComplete && !libraryLoading}
+        shouldShow={intialLoadComplete && (!libraryLoading || ebooksMetadata.length > 0)}
         speed={1000}
         style={{ height: '100%', width: '100%' }}
       >

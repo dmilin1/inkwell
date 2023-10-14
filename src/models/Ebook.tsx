@@ -1,11 +1,12 @@
 import { Preferences } from '@capacitor/preferences';
+import { LoadLibraryParams } from '../contexts/LibraryContext';
 
 export interface Ebook {
     filePath: string;
     builtIn: boolean;
     base64?: string;
 
-    loadMetadata(): Promise<Metadata>;
+    loadMetadata(loadOptions?: LoadLibraryParams): Promise<Metadata>;
     loadChapters(): Promise<Chapters>;
     saveSpot(data: SaveSpot): Promise<void>;
     loadSpot(): Promise<SaveSpot|null>;
@@ -64,6 +65,24 @@ export class Ebook implements Ebook {
         this.filePath = filePath;
         this.builtIn = !blob;
         this.base64 = blob;
+    }
+
+    async getCachedMetadata(): Promise<Metadata|null> {
+        const key = `${this.filePath}-cachedMetadata`;
+        const metadataStr = (await Preferences.get({ key })).value;
+        console.log(metadataStr);
+        const metadata = metadataStr ? JSON.parse(metadataStr) : null;
+        return metadata;
+    }
+
+    async setCachedMetadata(metadata: Metadata) {
+        const key = `${this.filePath}-cachedMetadata`;
+        await Preferences.set({ key, value: JSON.stringify(metadata) });
+    }
+
+    async deleteCachedMetadata() {
+        const key = `${this.filePath}-stats`;
+        await Preferences.remove({ key });
     }
 
     async getStats(): Promise<Stats> {

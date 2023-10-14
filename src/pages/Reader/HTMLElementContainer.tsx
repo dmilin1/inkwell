@@ -4,7 +4,7 @@ import { ChapterContext } from "../../contexts/ChapterContext";
 import { StatusBar } from "../../utils/StatusBar";
 import { ScrollPull } from "../../components/ScrollPull/ScrollPull";
 import { useDebounce } from "../../utils/Debounce";
-import SafeArea from "../../utils/SafeArea";
+import getSafeArea from "../../utils/SafeArea";
 
 export function HTMLElementContainer() {
   const {
@@ -21,8 +21,13 @@ export function HTMLElementContainer() {
   const {
     fontFamily, fontSize, fontWeight, lineSpacing, wordSpacing, letterSpacing,
     paragraphSpacing, paragraphIndentation, fontColor, backgroundColor,
-    verticalMargins, horizontalMargins, statusBar
+    verticalMargins: verticalMarginsSetting, horizontalMargins, statusBar
   } = settings;
+
+  const safeArea = getSafeArea();
+  const marginTop = verticalMarginsSetting + (settings.readingMode === 'paginated' ? safeArea.top : 0);
+  const marginBottom = verticalMarginsSetting + (settings.readingMode === 'paginated' ? safeArea.bottom : 0);
+  const verticalMarginTotal = marginTop + marginBottom;
 
   StatusBar.set(statusBar);
 
@@ -38,8 +43,9 @@ export function HTMLElementContainer() {
   const outerContainerStyles = {
     paddingLeft: `${horizontalMargins}px`,
     paddingRight: `${horizontalMargins}px`,
-    marginTop: `${verticalMargins}px`,
-    marginBottom: `${verticalMargins}px`,
+    paddingTop: `${settings.readingMode === 'paginated' ? 0 : safeArea.top}px`,
+    marginTop: `${marginTop}px`,
+    marginBottom: `${marginBottom}px`,
     backgroundColor: backgroundColor,
     fontSize: `${fontSize}px`,
     fontWeight: fontWeight,
@@ -51,7 +57,7 @@ export function HTMLElementContainer() {
     color: fontColor,
     fontFamily,
     overflow: settings.readingMode === 'scrolling' ? 'scroll' : 'hidden',
-    height: `calc(100vh - ${2*verticalMargins}px)`,
+    height: `calc(100vh - ${verticalMarginTotal}px)`,
     display: 'block',
     // 'background-image': 'url("https://www.tilingtextures.com/wp-content/uploads/2018/11/0066-768x768.jpg")',
     // 'background-size': 'auto',
@@ -175,7 +181,7 @@ export function HTMLElementContainer() {
       <div
         id='reader-container'
         ref={outerContainer}
-        className='padding-safe-area-top overscroll-none'
+        className='overscroll-none'
         style={outerContainerStyles as StyleHTMLAttributes<any>}
         onTouchStart={e => {
           textIsHighlighted.current = !!document.getSelection()?.toString();
@@ -188,8 +194,8 @@ export function HTMLElementContainer() {
             const containerBounds = outerContainer.current?.getBoundingClientRect();
             const containerScroll = outerContainer.current?.scrollTop ?? 0;
             const touchWidth = containerBounds?.width ?? 0;
-            const pageHeight = (containerBounds?.height ?? 0) - 2 * settings.verticalMargins;
-            const pageHeightBuffer = SafeArea.top + SafeArea.bottom;
+            const pageHeight = (containerBounds?.height ?? 0);
+            const pageHeightBuffer = 10;
             const edgeTouchSize = touchWidth / 4;
             const touchX = e.pageX;
             if (touchX < edgeTouchSize) {
@@ -221,5 +227,5 @@ export function HTMLElementContainer() {
       </div>
       <div style={backgroundStyles}/>
     </>
-  , [settings, html]);
+  , [settings, html, ...Object.values(safeArea)]);
 }

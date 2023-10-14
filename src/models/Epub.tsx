@@ -2,6 +2,7 @@ import $ from "jquery";
 import JSZip from 'jszip';
 import { xml2js, Element } from 'xml-js';
 import { Chapter, Chapters, Ebook, HTMLOptions } from './Ebook';
+import { LoadLibraryParams } from "../contexts/LibraryContext";
 
 interface Manifest {
     [id: string]: string;
@@ -16,26 +17,39 @@ export default class Epub extends Ebook {
     manifestBlobs?: Manifest;
     chapters?: Chapters;
 
-    async loadMetadata() {
-        await this.openFile();
-        const metadataObj = this.rootFile!.package.metadata
-        const metadata = {
-            filePath: this.filePath,
-            title: metadataObj?.elems('dc:title')?.[0].innerText,
-            author: metadataObj?.elems('dc:creator')
-                ?.map((elem: EzXML) => elem.innerText)
-                .join(' & '),
-            language: metadataObj?.elems('dc:language')
-                ?.map((elem: EzXML) => elem.innerText)
-                .join(', '),
-            date: metadataObj?.elems('dc:language')?.[0]?.innerText,
-            description: metadataObj?.elems('dc:description')?.[0]?.innerText,
-            subjects: metadataObj.items()
-                .filter((e: EzXML) => e.name === 'dc:subject')
-                .map((e: EzXML) => e.innerText),
-            coverImgPath: await this.loadCoverImg(),
-            stats: await this.getStats(),
-            progress: await this.loadSpot(),
+    async loadMetadata({ reload, reloadStatsOnly }: LoadLibraryParams = {}) {
+        let metadata = await this.getCachedMetadata();
+        console.log({ reload, reloadStatsOnly, metadata });
+        if (metadata && reloadStatsOnly) {
+            metadata = {
+                ...metadata,
+                stats: await this.getStats(),
+                progress: await this.loadSpot(),
+            };
+            await this.setCachedMetadata(metadata);
+        }
+        if (!metadata || reload) {
+            await this.openFile();
+            const metadataObj = this.rootFile!.package.metadata;
+            metadata = {
+                filePath: this.filePath,
+                title: metadataObj?.elems('dc:title')?.[0].innerText,
+                author: metadataObj?.elems('dc:creator')
+                    ?.map((elem: EzXML) => elem.innerText)
+                    .join(' & '),
+                language: metadataObj?.elems('dc:language')
+                    ?.map((elem: EzXML) => elem.innerText)
+                    .join(', '),
+                date: metadataObj?.elems('dc:language')?.[0]?.innerText,
+                description: metadataObj?.elems('dc:description')?.[0]?.innerText,
+                subjects: metadataObj.items()
+                    .filter((e: EzXML) => e.name === 'dc:subject')
+                    .map((e: EzXML) => e.innerText),
+                coverImgPath: await this.loadCoverImg(),
+                stats: await this.getStats(),
+                progress: await this.loadSpot(),
+            };
+            await this.setCachedMetadata(metadata);
         }
         return metadata;
     }
@@ -118,9 +132,15 @@ export default class Epub extends Ebook {
             ?.[0]?.attribute('content');
         const coverPath = this.manifest![coverId] ?? null
         if (coverPath) {
-            return await this.zip!.file(this.rootFileFolderPath + coverPath)
-                ?.async('blob')!
-                .then(URL.createObjectURL);
+            return new Promise(async res => {
+                const blob = await this.zip!.file(this.rootFileFolderPath + coverPath)?.async('blob')!
+                const reader = new FileReader();
+                reader.readAsDataURL(blob);
+                reader.onloadend = () => {
+                    let base64data = reader.result;                
+                    res(String(base64data));
+                }
+            });
         }
     }
 

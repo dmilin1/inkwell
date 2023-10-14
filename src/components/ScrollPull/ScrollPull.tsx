@@ -31,13 +31,16 @@ export function ScrollPull({ children, pulledUp, pulledDown, atBeginning, atEnd 
             onTouchStart={e => {
                 const x = e.targetTouches.item(0).clientX;
                 const y = e.targetTouches.item(0).clientY;
-                if (Math.round((topSection.current?.getBoundingClientRect().bottom ?? 0)) === 0) {
+                const scrollContainerTop = scrollContainer.current?.getBoundingClientRect().top ?? 0;
+                const parentTop = scrollContainer.current?.parentElement?.getBoundingClientRect().top ?? 0;
+                const parentTopPadding = Number(window.getComputedStyle(scrollContainer.current?.parentElement as Element).paddingTop.replace('px', ''));
+                if (Math.round(scrollContainerTop - parentTopPadding) === Math.round(parentTop)) {
                     setTopDragStartPos({ x, y });
                 }
-                if (
-                    Math.round((bottomSection.current?.getBoundingClientRect().bottom ?? 0))
-                    === Math.round(window.innerHeight)
-                ) {
+                const scrollContainerBottom = scrollContainer.current?.getBoundingClientRect().bottom ?? 0;
+                const parentBottom = scrollContainer.current?.parentElement?.getBoundingClientRect().bottom ?? 0;
+                const parentBottomPadding = Number(window.getComputedStyle(scrollContainer.current?.parentElement as Element).paddingBottom.replace('px', ''));
+                if (Math.round(scrollContainerBottom - parentBottomPadding) === Math.round(parentBottom)) {
                     setBottomDragStartPos({ x, y });
                 }
             }}

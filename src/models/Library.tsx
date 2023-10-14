@@ -20,7 +20,7 @@ export default class Library {
             return Library.books;
         }
         const addedBooks = (await Library.getBookFiles())
-            .map(file => EbookLoader.new(file.fileName, file.base64));
+            .map(file => EbookLoader.new(file.fileName, file.base64.toString()));
         let inclBooks = includedBooks
             .map(file => EbookLoader.new(file));
         const deleted = (await Promise.all(inclBooks.map(async (book) => book.getStats())))
@@ -67,6 +67,7 @@ export default class Library {
                     directory: Directory.Library,
                 });
             }
+            book.deleteCachedMetadata();
             return true;
         }
         return false;
