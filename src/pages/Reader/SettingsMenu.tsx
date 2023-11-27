@@ -148,6 +148,20 @@ const layoutSettings: SettingType[] = [{
     name: 'Hidden',
     value: StatusBarMode.Hidden,
   }]
+}, {
+  id: 'scrollBar',
+  name: 'Scroll Bar',
+  type: 'list',
+  list: [{
+    name: 'Visible',
+    value: 'visible',
+  }, {
+    name: 'Untouchable',
+    value: 'untouchable',
+  }, {
+    name: 'Hidden',
+    value: 'hidden',
+  }]
 }];
 
 const themeSettings: SettingType[] = [{
@@ -180,7 +194,7 @@ export default function SettingsMenu() {
   const [categoryIndex, setCategoryIndex] = useState(0);
 
   return (
-    <div className='w-full h-full absolute z-[20] pointer-events-none select-none'>  
+    <div className='w-full h-full absolute z-30 pointer-events-none select-none'>  
       <FaderTransition shouldShow={isSettingsOpen} speed={300} style={{
         width: '100%',
         height: '100%',

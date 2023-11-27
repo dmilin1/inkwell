@@ -1,4 +1,4 @@
-import { useContext } from 'react';
+import { useContext, useEffect } from 'react';
 import { ChapterContext } from '../../contexts/ChapterContext';
 import { faChevronLeft, faChevronRight, faGlasses } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
@@ -12,9 +12,13 @@ export default function ChapterSelect() {
   } = useContext(ChapterContext);
   const { setIsSettingsOpen } = useContext(SettingsContext);
 
+  useEffect(() => {
+    document.querySelector(`#chapter-${chapterIndex}`)?.scrollIntoView();
+  }, [isChapterSelectOpen]);
+
   return (
     <div
-      className='w-full h-full absolute z-[30] select-none'
+      className='w-full h-full absolute z-40 select-none'
       style={{ display: isChapterSelectOpen ? 'flex': 'none' }}
     >
       <div className='bg-bg-primary flex-row padding-safe-area-top justify-between'>
@@ -32,6 +36,7 @@ export default function ChapterSelect() {
           {chapters?.ordered().map((chapter, i) =>
             <div
               key={chapter.index}
+              id={`chapter-${i}`}
               className='h-16 px-6 justify-between items-center flex-row cursor-pointer'
               onClick={() => {
                 setChapterIndex(i);

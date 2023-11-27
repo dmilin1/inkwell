@@ -70,7 +70,6 @@ export class Ebook implements Ebook {
     async getCachedMetadata(): Promise<Metadata|null> {
         const key = `${this.filePath}-cachedMetadata`;
         const metadataStr = (await Preferences.get({ key })).value;
-        console.log(metadataStr);
         const metadata = metadataStr ? JSON.parse(metadataStr) : null;
         return metadata;
     }
@@ -81,7 +80,7 @@ export class Ebook implements Ebook {
     }
 
     async deleteCachedMetadata() {
-        const key = `${this.filePath}-stats`;
+        const key = `${this.filePath}-cachedMetadata`;
         await Preferences.remove({ key });
     }
 
@@ -94,6 +93,9 @@ export class Ebook implements Ebook {
             lastOpenedAt: 0,
             deleted: false,
         };
+        if (savedStats.addedAt === undefined) {
+            await Preferences.set({ key, value: JSON.stringify(defaultStats) });
+        }
         return {
             ...defaultStats,
             ...savedStats,
@@ -110,6 +112,11 @@ export class Ebook implements Ebook {
         await Preferences.set({ key, value: JSON.stringify(newStats) });
     }
 
+    async deleteStats() {
+        const key = `${this.filePath}-stats`;
+        await Preferences.remove({ key });
+    }
+
     async saveSpot(data: SaveSpot) {
         const key = `${this.filePath}-saveSpot`;
         await Preferences.set({ key, value: JSON.stringify(data) });
@@ -118,14 +125,16 @@ export class Ebook implements Ebook {
     async loadSpot(): Promise<SaveSpot> {
         const key = `${this.filePath}-saveSpot`;
         const str = (await Preferences.get({ key })).value;
-        if (str) {
-            return JSON.parse(str);
-        }
         const defaultSpot: SaveSpot = {
             chapterIndex: 0,
             scrollHeight: 0,
             percentComplete: 0,
         };
+        if (str) {
+            return JSON.parse(str);
+        } else {
+            await Preferences.set({ key, value: JSON.stringify(defaultSpot) });
+        }
         return defaultSpot;
     }
 }

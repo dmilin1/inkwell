@@ -30,7 +30,6 @@ export function LibraryProvider({ children }: React.PropsWithChildren) {
     const [libraryLoading, setLibraryLoading] = useState(true);
 
     const loadEbooks = async (loadOptions: LoadLibraryParams = {}) => {
-        let start = Date.now();
         setLibraryLoading(true);
         const ebooks = await Library.getBooks(loadOptions.reload);
         const metadata = await Promise.all(

@@ -6,6 +6,8 @@ import { ScrollPull } from "../../components/ScrollPull/ScrollPull";
 import { useDebounce } from "../../utils/Debounce";
 import getSafeArea from "../../utils/SafeArea";
 
+let progressIndicatorOpacityTimout : NodeJS.Timeout|undefined = undefined;
+
 export function HTMLElementContainer() {
   const {
     html, chapterIndex, prevChapterIndex, numberOfChapters,
@@ -149,6 +151,24 @@ export function HTMLElementContainer() {
     }, 100)
   }
 
+  const alignProgressIndicator = () => {
+    const indicator = document.querySelector('#progress-indicator') as HTMLElement|null;
+    const container = document.querySelector('#reader-container') as HTMLElement|null;
+    const contents = document.querySelector('#reader-contents-container') as HTMLElement|null;
+    if (!indicator || !container || !contents) return;
+    const containerBounds = container.getBoundingClientRect();
+    const contentsBounds = contents.getBoundingClientRect();
+    const relativeSize = containerBounds.height / contentsBounds.height;
+    indicator.style.opacity = '50%';
+    indicator.style.backgroundColor = settings.fontColor;
+    indicator.style.height = `${relativeSize * 100}%`;
+    indicator.style.top = `${(container.scrollTop / contentsBounds.height) * (containerBounds.height - marginBottom) + containerBounds.top}px`;
+    clearTimeout(progressIndicatorOpacityTimout);
+    progressIndicatorOpacityTimout = setTimeout(() => {
+      indicator.style.opacity = '0%';
+    }, 1000);
+  }
+
   useEffect(() => {
     if (htmlContainer.current?.children) {
       htmlContainer.current.style.opacity = '1';
@@ -170,6 +190,7 @@ export function HTMLElementContainer() {
 
   useEffect(() => {
     saveSpot();
+    alignProgressIndicator();
   }, [outerContainer.current]);
 
   const debouncedScroll = useDebounce('scroll-save', 250, () => {
@@ -178,10 +199,19 @@ export function HTMLElementContainer() {
 
   return useMemo(() =>
     <>
+      {settings.scrollBar === 'untouchable' &&
+        <div
+          id='progress-indicator'
+          className='opacity-50 z-20 w-[3px] absolute right-0 rounded'
+          style={{
+            transition: 'opacity 0.5s',
+          }}
+        />
+      }
       <div
         id='reader-container'
         ref={outerContainer}
-        className='overscroll-none'
+        className={`overscroll-none ${settings.scrollBar !== 'visible' ? 'scrollbar-hide' : ''}`}
         style={outerContainerStyles as StyleHTMLAttributes<any>}
         onTouchStart={e => {
           textIsHighlighted.current = !!document.getSelection()?.toString();
@@ -209,7 +239,10 @@ export function HTMLElementContainer() {
           }
           setIsSettingsOpen((prevState) => !prevState);
         }}
-        onScroll={() => debouncedScroll.current?.()}
+        onScroll={() => {
+          debouncedScroll.current?.();
+          alignProgressIndicator();
+        }}
         tabIndex={0}
       >
         <ScrollPull
@@ -219,6 +252,7 @@ export function HTMLElementContainer() {
           atEnd={chapterIndex === numberOfChapters - 1}
         >
           <div
+            id='reader-contents-container'
             ref={buildElements}
             className='padding-safe-area-bottom transition-opacity opacity-0 duration-[1000ms]'
             style={innerContainerStyles}

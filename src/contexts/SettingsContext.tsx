@@ -17,6 +17,7 @@ export type Settings = {
     verticalMargins: number,
     horizontalMargins: number,
     statusBar: StatusBarMode,
+    scrollBar: 'visible'|'untouchable'|'hidden',
 
     fontColor: string,
     backgroundColor: string,
@@ -36,6 +37,7 @@ const defaultSettings: Settings = {
     verticalMargins: 0,
     horizontalMargins: 10,
     statusBar: StatusBarMode.Dark,
+    scrollBar: 'visible',
 
     fontColor: '#ffffff',
     backgroundColor: '#000000',

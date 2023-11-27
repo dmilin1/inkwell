@@ -87,13 +87,13 @@ function Home() {
               <EbookRow
                 sectionTitle='Recently Opened'
                 bookData={[...ebooksMetadata].sort((a, b) =>
-                  Math.sign(b.stats.lastOpenedAt - a.stats.lastOpenedAt)
+                  b.stats.lastOpenedAt - a.stats.lastOpenedAt < 0 ? -1 : 1
                 ).slice(0, 10)}
               />
               <EbookRow
                 sectionTitle='Recently Added'
-                bookData={[...ebooksMetadata].sort((a, b) =>
-                  Math.sign(b.stats.addedAt - a.stats.addedAt)
+                bookData={[...ebooksMetadata].sort((a, b) => 
+                  b.stats.addedAt - a.stats.addedAt < 0 ? -1 : 1
                 ).slice(0, 10)}
               />
               <EbookChunk

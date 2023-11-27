@@ -19,7 +19,6 @@ export default class Epub extends Ebook {
 
     async loadMetadata({ reload, reloadStatsOnly }: LoadLibraryParams = {}) {
         let metadata = await this.getCachedMetadata();
-        console.log({ reload, reloadStatsOnly, metadata });
         if (metadata && reloadStatsOnly) {
             metadata = {
                 ...metadata,

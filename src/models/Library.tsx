@@ -67,6 +67,7 @@ export default class Library {
                     directory: Directory.Library,
                 });
             }
+            book.deleteStats();
             book.deleteCachedMetadata();
             return true;
         }
