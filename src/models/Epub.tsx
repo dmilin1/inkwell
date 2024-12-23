@@ -59,6 +59,47 @@ export default class Epub extends Ebook {
         const tocFilePath = this.manifest?.[tocId];
         const tocFile = await this.readXML(this.rootFileFolderPath! + tocFilePath);
         const flattenedNavMap = this.flattenNavMap(tocFile.ncx.navMap);
+        try {
+            /**
+             * I added this whole try loop to test properly loading from the spine because
+             * that's the "correct" way to do it. Previously, I was loading from the toc file.
+             * I'm not sure if this will work, but I'm going to try it out. It's wrapped in
+             * a try loop so it'll fall back to the old way of doing things if it doesn't work
+             * for some ebook files.
+             */
+
+            // Gunna try to get the chapters from the spine first
+            const chapters: EpubChapter[] = [];
+            // Make an object matching chapter file paths to their names in the toc file
+            const chapterNames = flattenedNavMap.reduce((obj: { [key: string]: string }, chapter: EzXML) => {
+                let chapterFilePath = chapter.content.attribute('src') as string;
+                chapterFilePath = decodeURIComponent(chapterFilePath);
+                // trim the file path to just include the file name
+                chapterFilePath = chapterFilePath.replace(/(.*\/)|((#|&|\?).*$)/g, '');
+                obj[chapterFilePath] = chapter.navLabel.text.innerText;
+                return obj;
+            }, {});
+            this.rootFile!.package.spine.items().forEach((chapter: EzXML, i: number) => {
+                const chapterId = chapter.attribute('idref');
+                if (!chapterId || !this.manifest![chapterId]) {
+                    throw `Chapter with id "${chapterId}" not found in manifest`;
+                }
+                const relativePath = this.manifest![chapterId];
+                const fileName = relativePath.replace(/(.*\/)|((#|&|\?).*$)/g, '');
+                console.log(fileName);
+                const chapterName = chapterNames[fileName];
+                chapters.push(new EpubChapter(
+                    this,
+                    chapterName,
+                    relativePath,
+                    i
+                ));
+            });
+            console.log(chapterNames);
+            return new EpubChapters(chapters);
+        } catch (e) {
+            console.error(e);
+        }
         const orderedChapters = flattenedNavMap.map((chapter: EzXML, i: number) => 
             new EpubChapter(
                 this,
