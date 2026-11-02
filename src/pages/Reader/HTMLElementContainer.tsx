@@ -19,6 +19,14 @@ type TrackedPosition = {
   width: number,
 };
 
+/** Maximum text column width per "Line length" setting (in em, so it holds a similar number of characters at any size). */
+const LINE_LENGTHS: { [length: string]: string } = {
+  narrow: '28em',
+  medium: '34em',
+  wide: '42em',
+  full: 'none',
+};
+
 let progressIndicatorOpacityTimout : NodeJS.Timeout|undefined = undefined;
 
 export function HTMLElementContainer() {
@@ -118,7 +126,7 @@ export function HTMLElementContainer() {
     minHeight: '105vh',
     // Keep lines to a comfortable length on wide screens (e.g. an unfolded phone).
     width: '100%',
-    maxWidth: '34em',
+    maxWidth: LINE_LENGTHS[settings.lineLength] ?? LINE_LENGTHS.medium,
     marginLeft: 'auto',
     marginRight: 'auto',
   };
@@ -556,7 +564,7 @@ export function HTMLElementContainer() {
             right: 'var(--sar)',
             transition: 'opacity 0.5s',
             opacity: 0,
-            pointerEvents: settings.scrollBar === 'visible' ? 'auto' : 'none',
+            pointerEvents: settings.scrollBar === 'visible' && settings.scrollBarDraggable ? 'auto' : 'none',
             touchAction: 'none',
           }}
           onPointerDown={e => {

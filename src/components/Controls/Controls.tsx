@@ -68,7 +68,7 @@ export function Segmented<T extends string>({ label, ariaLabel, value, options, 
                     aria-checked={option.value === value}
                     key={option.value}
                     className={`pressable flex-1 rounded-full whitespace-nowrap transition-colors ${
-                        size === 'sm' ? 'h-7 px-2.5 text-xs' : 'h-9 px-3 text-[0.9rem]'
+                        size === 'sm' ? 'h-7 px-2.5 text-xs' : `h-9 ${options.length >= 4 ? 'px-2' : 'px-3'} text-[0.9rem]`
                     } ${
                         option.value === value
                             ? 'bg-text-primary text-bg-primary font-semibold'
@@ -84,10 +84,11 @@ export function Segmented<T extends string>({ label, ariaLabel, value, options, 
     if (!label) {
         return control;
     }
+    // On narrow screens the control drops below its label rather than overflowing.
     return (
-        <div className='flex-row items-center justify-between gap-4 min-h-[3rem]'>
+        <div className='flex-row flex-wrap items-center justify-between gap-x-4 gap-y-2 min-h-[3rem] py-1'>
             <div className='text-[0.95rem] shrink-0'>{label}</div>
-            {control}
+            <div className='ml-auto max-w-full'>{control}</div>
         </div>
     );
 }

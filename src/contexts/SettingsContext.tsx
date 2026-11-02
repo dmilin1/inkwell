@@ -16,8 +16,13 @@ export type Settings = {
     paragraphIndentation: number,
     verticalMargins: number,
     horizontalMargins: number,
+    /** Maximum line length; side margins still apply as the minimum gap from the screen edge. */
+    lineLength: 'narrow'|'medium'|'wide'|'full',
     statusBar: StatusBarMode,
+    /** 'visible': always shown; 'untouchable': shown while scrolling (name kept from older versions). */
     scrollBar: 'visible'|'untouchable'|'hidden',
+    /** Whether the always-shown scroll bar can be dragged. Off keeps it from catching the thumb while reading. */
+    scrollBarDraggable: boolean,
 
     fontColor: string,
     backgroundColor: string,
@@ -39,8 +44,10 @@ const defaultSettings: Settings = {
     paragraphIndentation: 1.5,
     verticalMargins: 8,
     horizontalMargins: 24,
+    lineLength: 'medium',
     statusBar: StatusBarMode.Dark,
     scrollBar: 'untouchable',
+    scrollBarDraggable: false,
 
     fontColor: '#d4d0c7',
     backgroundColor: '#15161c',

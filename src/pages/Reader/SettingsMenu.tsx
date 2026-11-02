@@ -155,6 +155,17 @@ export default function SettingsMenu() {
                   step={0.5}
                   onChange={set('paragraphIndentation')}
                 />
+                <Segmented
+                  label='Line length'
+                  value={settings.lineLength}
+                  onChange={set('lineLength')}
+                  options={[
+                    { value: 'narrow', name: 'Narrow' },
+                    { value: 'medium', name: 'Medium' },
+                    { value: 'wide', name: 'Wide' },
+                    { value: 'full', name: 'Full' },
+                  ]}
+                />
                 <Stepper label='Side margins' value={settings.horizontalMargins} min={0} max={96} step={4} onChange={set('horizontalMargins')} />
                 <Stepper label='Top & bottom margins' value={settings.verticalMargins} min={0} max={96} step={4} onChange={set('verticalMargins')} />
                 <Stepper label='Word spacing' value={settings.wordSpacing} min={0} max={5} step={0.1} format={formatSpacing} onChange={set('wordSpacing')} />
@@ -174,10 +185,18 @@ export default function SettingsMenu() {
                     value={settings.scrollBar}
                     onChange={set('scrollBar')}
                     options={[
-                      { value: 'visible', name: 'Show' },
+                      { value: 'visible', name: 'Always' },
                       { value: 'untouchable', name: 'While scrolling' },
                       { value: 'hidden', name: 'Hide' },
                     ]}
+                  />
+                }
+                {settings.readingMode === 'scrolling' && settings.scrollBar === 'visible' &&
+                  <Toggle
+                    label='Drag to scroll'
+                    description='Off keeps it from catching your thumb'
+                    checked={settings.scrollBarDraggable}
+                    onChange={set('scrollBarDraggable')}
                   />
                 }
               </>}
