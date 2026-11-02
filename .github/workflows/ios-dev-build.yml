@@ -1,0 +1,236 @@
+# Cloud build of Inkwell on GitHub-hosted macOS runners.
+#
+# Builds a side-by-side "Inkwell Dev" variant with its own bundle ID, so it
+# installs next to the App Store version without touching its data, and uploads
+# it to TestFlight (internal testing only).
+#
+# Until the signing secrets below are configured, the iOS job only checks that
+# the app compiles (unsigned), and nothing is uploaded.
+#
+# Required repository secrets for TestFlight uploads:
+#   IOS_DIST_CERT_P12           base64 of an "Apple Distribution" certificate + private key (.p12)
+#   IOS_DIST_CERT_PASSWORD      password of that .p12
+#   IOS_DEV_PROFILE             base64 of an App Store provisioning profile for DEV_BUNDLE_ID
+#   ASC_KEY_ID                  App Store Connect API key ID ("App Manager" role is enough)
+#   ASC_ISSUER_ID               App Store Connect API issuer ID
+#   ASC_KEY_P8                  contents of the AuthKey_XXXXXX.p8 file
+
+name: iOS dev build
+
+on:
+  push:
+    branches: [ios27-iphone-duo]
+  workflow_dispatch:
+
+concurrency:
+  group: ios-dev-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  TEAM_ID: 4L9GV2HTTC
+  APP_STORE_BUNDLE_ID: com.dimitriemilinovich.inkwell
+  DEV_BUNDLE_ID: com.dimitriemilinovich.inkwell.dev
+  DEV_DISPLAY_NAME: Inkwell Dev
+
+jobs:
+  ios:
+    name: iOS (Xcode 27)
+    runs-on: xcode-27
+    timeout-minutes: 60
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
+      HAS_SIGNING: ${{ secrets.IOS_DIST_CERT_P12 != '' && secrets.IOS_DEV_PROFILE != '' && secrets.ASC_KEY_P8 != '' }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        # Install scripts aren't needed (and sharp's native build, pulled in by
+        # @capacitor/assets, is slow and fragile).
+        run: npm ci --ignore-scripts
+
+      - name: Build web app
+        run: npm run build
+
+      - name: Sync Capacitor (copies web assets, runs pod install)
+        run: npx cap sync ios
+
+      - name: Show toolchain
+        run: |
+          xcodebuild -version
+          pod --version
+
+      # ---- Unsigned compile check (when signing secrets aren't configured) ----
+
+      - name: Compile check (unsigned)
+        if: env.HAS_SIGNING != 'true'
+        run: |
+          set -o pipefail
+          xcodebuild build \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGNING_ALLOWED=NO
+
+      - name: Note about TestFlight uploads
+        if: env.HAS_SIGNING != 'true'
+        run: echo "::notice::Signing secrets are not configured, so this run only checked that the app compiles. See the header of .github/workflows/ios-dev-build.yml."
+
+      # ---- Signed build + TestFlight upload ----
+
+      - name: Install signing certificate and provisioning profile
+        if: env.HAS_SIGNING == 'true'
+        env:
+          IOS_DIST_CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
+          IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
+          IOS_DEV_PROFILE: ${{ secrets.IOS_DEV_PROFILE }}
+        run: |
+          set -euo pipefail
+          KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -hex 24)"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN"
+          printf '%s' "$IOS_DIST_CERT_P12" | base64 --decode > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -k "$KEYCHAIN" -P "$IOS_DIST_CERT_PASSWORD" -f pkcs12 -A -T /usr/bin/codesign -T /usr/bin/security
+          security set-key-partition-list -S apple-tool:,apple: -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN" > /dev/null
+          security list-keychains -d user -s "$KEYCHAIN" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/dist.p12"
+          echo "Signing identities:"
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+          printf '%s' "$IOS_DEV_PROFILE" | base64 --decode > "$RUNNER_TEMP/dev.mobileprovision"
+          security cms -D -i "$RUNNER_TEMP/dev.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")
+          PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/profile.plist")
+          PROFILE_APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$RUNNER_TEMP/profile.plist")
+          if [ "$PROFILE_APP_ID" != "$TEAM_ID.$DEV_BUNDLE_ID" ]; then
+            echo "::error::The provisioning profile is for '$PROFILE_APP_ID', expected '$TEAM_ID.$DEV_BUNDLE_ID'."
+            exit 1
+          fi
+          for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
+            mkdir -p "$dir"
+            cp "$RUNNER_TEMP/dev.mobileprovision" "$dir/$PROFILE_UUID.mobileprovision"
+          done
+          echo "Installed profile '$PROFILE_NAME' ($PROFILE_UUID)"
+          {
+            echo "KEYCHAIN=$KEYCHAIN"
+            echo "PROFILE_NAME=$PROFILE_NAME"
+          } >> "$GITHUB_ENV"
+
+      - name: Configure the side-by-side "Inkwell Dev" variant
+        if: env.HAS_SIGNING == 'true'
+        # Only this CI checkout is modified; the committed project (App Store
+        # build) is unchanged. These settings exist only in the App target.
+        env:
+          BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          PBXPROJ=ios/App/App.xcodeproj/project.pbxproj
+          for pattern in \
+            "CODE_SIGN_STYLE = Automatic;" \
+            "PRODUCT_BUNDLE_IDENTIFIER = $APP_STORE_BUNDLE_ID;" \
+            "CURRENT_PROJECT_VERSION = 1;"; do
+            count=$(grep -cF "$pattern" "$PBXPROJ" || true)
+            if [ "$count" != "2" ]; then
+              echo "::error::Expected '$pattern' exactly twice (App target Debug/Release) in $PBXPROJ, found $count."
+              exit 1
+            fi
+          done
+          sed -i '' \
+            -e "s|CODE_SIGN_STYLE = Automatic;|CODE_SIGN_STYLE = Manual; CODE_SIGN_IDENTITY = \"Apple Distribution\"; PROVISIONING_PROFILE_SPECIFIER = \"$PROFILE_NAME\";|" \
+            -e "s|PRODUCT_BUNDLE_IDENTIFIER = $APP_STORE_BUNDLE_ID;|PRODUCT_BUNDLE_IDENTIFIER = $DEV_BUNDLE_ID;|" \
+            -e "s|CURRENT_PROJECT_VERSION = 1;|CURRENT_PROJECT_VERSION = $BUILD_NUMBER;|" \
+            "$PBXPROJ"
+          plutil -lint "$PBXPROJ"
+          plutil -replace CFBundleDisplayName -string "$DEV_DISPLAY_NAME" ios/App/App/Info.plist
+          echo "Bundle ID: $DEV_BUNDLE_ID, name: $DEV_DISPLAY_NAME, build: $BUILD_NUMBER"
+
+      - name: Archive
+        if: env.HAS_SIGNING == 'true'
+        run: |
+          set -o pipefail
+          xcodebuild archive \
+            -workspace ios/App/App.xcworkspace \
+            -scheme App \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath "$RUNNER_TEMP/Inkwell.xcarchive" \
+            OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN"
+
+      - name: Upload to TestFlight
+        if: env.HAS_SIGNING == 'true'
+        env:
+          ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+          ASC_KEY_P8: ${{ secrets.ASC_KEY_P8 }}
+        run: |
+          set -euo pipefail
+          printf '%s' "$ASC_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$TEAM_ID</string>
+            <key>signingStyle</key><string>manual</string>
+            <key>signingCertificate</key><string>Apple Distribution</string>
+            <key>provisioningProfiles</key>
+            <dict>
+              <key>$DEV_BUNDLE_ID</key><string>$PROFILE_NAME</string>
+            </dict>
+            <key>manageAppVersionAndBuildNumber</key><false/>
+            <key>testFlightInternalTestingOnly</key><true/>
+            <key>uploadSymbols</key><true/>
+          </dict>
+          </plist>
+          EOF
+          plutil -lint "$RUNNER_TEMP/ExportOptions.plist"
+          xcodebuild -exportArchive \
+            -archivePath "$RUNNER_TEMP/Inkwell.xcarchive" \
+            -exportPath "$RUNNER_TEMP/export" \
+            -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID"
+          echo "::notice::Uploaded $DEV_DISPLAY_NAME build ${{ github.run_number }}.${{ github.run_attempt }} to TestFlight. It appears in App Store Connect after processing (usually 5-15 minutes)."
+
+      - name: Clean up signing files
+        if: always()
+        run: |
+          if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/dev.mobileprovision" "$RUNNER_TEMP/profile.plist"
+
+  android:
+    # Compile check only: the Android project was also migrated (Capacitor 8,
+    # SDK 36, Gradle 8.14) and can't be built on the local Windows machine.
+    name: Android (compile check)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - run: npm ci --ignore-scripts
+      - run: npm run build
+      - run: npx cap sync android
+      - name: Assemble debug APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
