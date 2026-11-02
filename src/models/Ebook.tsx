@@ -1,5 +1,6 @@
 import { Preferences } from '@capacitor/preferences';
 import { LoadLibraryParams } from '../contexts/LibraryContext';
+import { ReadingPosition } from '../utils/ReadingPosition';
 
 export interface Ebook {
     filePath: string;
@@ -52,8 +53,11 @@ export interface Chapters {
 
 export interface SaveSpot {
     chapterIndex: number,
+    /** Pixel scroll offset. Kept for spots saved by older versions; prefer `position`. */
     scrollHeight: number,
     percentComplete: number,
+    /** Layout-independent position within the chapter (survives reflows). */
+    position?: ReadingPosition,
 }
 
 export class Ebook implements Ebook {

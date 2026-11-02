@@ -1,10 +1,18 @@
-import { StyleHTMLAttributes, useContext, useEffect, useMemo, useRef } from "react";
+import { StyleHTMLAttributes, useContext, useEffect, useMemo, useRef, useState } from "react";
 import { SettingsContext } from "../../contexts/SettingsContext";
 import { ChapterContext } from "../../contexts/ChapterContext";
 import { StatusBar } from "../../utils/StatusBar";
 import { ScrollPull } from "../../components/ScrollPull/ScrollPull";
 import { useDebounce } from "../../utils/Debounce";
 import getSafeArea from "../../utils/SafeArea";
+import { ReadingPosition, capturePosition, resetPositionCache, restorePosition } from "../../utils/ReadingPosition";
+
+type TrackedPosition = {
+  chapterIndex?: number,
+  value?: ReadingPosition,
+  /** Width of the text column when `value` was captured; a change means the text reflowed. */
+  width: number,
+};
 
 let progressIndicatorOpacityTimout : NodeJS.Timeout|undefined = undefined;
 
@@ -19,6 +27,22 @@ export function HTMLElementContainer() {
   const htmlContainer = useRef<HTMLDivElement>();
 
   const textIsHighlighted = useRef(false);
+
+  /**
+   * The spot the user last scrolled to, stored independently of layout so it
+   * can be restored when the text reflows (iPhone Duo fold/unfold, rotation,
+   * window resize, font or margin changes).
+   */
+  const position = useRef<TrackedPosition>({ width: 0 });
+  /** The scrollTop we last set ourselves; scroll events landing there aren't user scrolls. */
+  const programmaticScrollTop = useRef<number>();
+  /** True while chapter contents are being (re)built and the spot restored. */
+  const isRestoring = useRef(false);
+  /** Incremented per build so an older, still-pending build doesn't restore over a newer one. */
+  const buildId = useRef(0);
+
+  /** Re-render on viewport changes so safe-area insets (which can differ per display) are re-read. */
+  const [, setViewportSize] = useState(() => `${window.innerWidth}x${window.innerHeight}`);
 
   const {
     fontFamily, fontSize, fontWeight, lineSpacing, wordSpacing, letterSpacing,
@@ -59,6 +83,9 @@ export function HTMLElementContainer() {
     color: fontColor,
     fontFamily,
     overflow: settings.readingMode === 'scrolling' ? 'scroll' : 'hidden',
+    // We keep the reading position ourselves (see realign); browser scroll
+    // anchoring (Chromium/Android only) would fight it.
+    overflowAnchor: 'none',
     height: `calc(100vh - ${verticalMarginTotal}px)`,
     display: 'block',
     // 'background-image': 'url("https://www.tilingtextures.com/wp-content/uploads/2018/11/0066-768x768.jpg")',
@@ -108,9 +135,18 @@ export function HTMLElementContainer() {
     if (!ref) {
       return;
     }
+    /**
+     * If this chapter is already on screen (we're rebuilding because a setting
+     * or the safe area changed), keep the reader where it was. Snapshot it now,
+     * before the DOM changes underneath it.
+     */
+    const tracked = position.current.chapterIndex === chapterIndex ? position.current.value : undefined;
+    const id = ++buildId.current;
+    isRestoring.current = true;
     htmlContainer.current = ref;
     ref.innerHTML = '';
     html!.forEach(child => ref?.appendChild(child));
+    resetPositionCache(ref);
     for (let [selector, styles] of Object.entries(elementStyles)) {
       ref.querySelectorAll<HTMLElement>(selector).forEach(elem =>
         Object.assign(elem.style, styles)
@@ -125,17 +161,107 @@ export function HTMLElementContainer() {
      */
     /* DO NOT REMOVE */console.log(ref.getBoundingClientRect());/* DO NOT REMOVE */
     const spot = await loadSpot();
-    if ((chapterIndex ?? 0) - (prevChapterIndex ?? 0) === -1) {
-      outerContainer.current?.scrollTo({ top: Number.MAX_VALUE });
-    } else if (spot && chapterIndex === spot.chapterIndex) {
-      outerContainer.current?.scrollTo({ top: spot.scrollHeight });
-    } else {
-      outerContainer.current?.scrollTo({ top: 0 });
-      saveSpot();
+    /**
+     * Restore in the final layout: the reader font may still be loading (the
+     * first time it's used in a session), and the text reflows once it arrives.
+     * Spots saved as pixel offsets by older versions only match the final layout.
+     */
+    await Promise.race([
+      document.fonts?.ready,
+      new Promise(resolve => setTimeout(resolve, 1000)),
+    ]);
+    const container = outerContainer.current;
+    if (id !== buildId.current) {
+      // Superseded by a newer build while we were loading the spot.
+      return;
     }
+    if (!container) {
+      isRestoring.current = false;
+      return;
+    }
+    let restoredFrom: ReadingPosition | undefined;
+    if (tracked) {
+      restorePosition(container, ref, tracked);
+      restoredFrom = tracked;
+    } else if ((chapterIndex ?? 0) - (prevChapterIndex ?? 0) === -1) {
+      container.scrollTo({ top: Number.MAX_VALUE });
+    } else if (spot && chapterIndex === spot.chapterIndex) {
+      restorePosition(container, ref, spot.position, spot.scrollHeight);
+      restoredFrom = spot.position?.anchor ? spot.position : undefined;
+    } else {
+      container.scrollTo({ top: 0 });
+    }
+    programmaticScrollTop.current = container.scrollTop;
+    position.current = {
+      chapterIndex,
+      // Keep the original anchor rather than re-capturing it, so repeated
+      // reflows can't drift the position.
+      value: restoredFrom ?? capturePosition(container, ref),
+      width: ref.clientWidth,
+    };
+    isRestoring.current = false;
+    alignProgressIndicator();
+    saveSpot(position.current.value);
+  };
+
+  /**
+   * Called when the reader or its contents changed size: the viewport changed
+   * (fold/unfold, rotation, window resize) or the text reflowed for another
+   * reason (fonts or images finishing loading). Scroll back to the tracked spot.
+   */
+  const realign = () => {
+    const container = outerContainer.current;
+    const contents = htmlContainer.current;
+    if (!container || !contents || isRestoring.current || contents.clientWidth === 0) {
+      return;
+    }
+    position.current.width = contents.clientWidth;
+    if (!position.current.value || position.current.chapterIndex !== chapterIndex) {
+      return;
+    }
+    const previousScrollTop = container.scrollTop;
+    programmaticScrollTop.current = restorePosition(container, contents, position.current.value);
+    if (programmaticScrollTop.current !== previousScrollTop) {
+      alignProgressIndicator();
+      debouncedScroll.current?.();
+    }
+  };
+  const realignRef = useRef(realign);
+  realignRef.current = realign;
+
+  /** Records the spot the user has scrolled to. */
+  const trackScroll = () => {
+    const container = outerContainer.current;
+    const contents = htmlContainer.current;
+    if (!container || !contents || isRestoring.current) {
+      return;
+    }
+    if (contents.clientWidth !== position.current.width) {
+      // This scroll came from a reflow (e.g. the device was folded), not the user.
+      realign();
+      return;
+    }
+    if (
+      programmaticScrollTop.current !== undefined
+      && Math.abs(container.scrollTop - programmaticScrollTop.current) < 1
+    ) {
+      return;
+    }
+    programmaticScrollTop.current = undefined;
+    position.current = {
+      chapterIndex,
+      value: capturePosition(container, contents),
+      width: contents.clientWidth,
+    };
   };
 
   const changeChapter = async (i: number) => {
+    if (chapterIndex !== i && i >= 0 && i < numberOfChapters) {
+      // The tracked spot belongs to the chapter we're leaving, and scrolls from
+      // clearing the old contents must not be saved.
+      position.current = { width: 0 };
+      isRestoring.current = true;
+    }
     if (
       htmlContainer.current
       && outerContainer.current
@@ -189,12 +315,61 @@ export function HTMLElementContainer() {
   }, []);
 
   useEffect(() => {
-    saveSpot();
+    // The spot is saved by buildElements once it has been restored; saving here
+    // would race with (and could overwrite) the spot before it's loaded.
     alignProgressIndicator();
   }, [outerContainer.current]);
 
+  useEffect(() => {
+    /**
+     * Folding/unfolding the iPhone Duo, rotating, or resizing the window
+     * changes the reader's size and reflows the text. The contents can also
+     * change height on their own (fonts or images finishing loading).
+     * ResizeObserver callbacks run after layout but before paint, so the
+     * correction is never visible.
+     */
+    let frame: number | undefined;
+    const onResize = () => {
+      realignRef.current();
+      if (frame === undefined) {
+        frame = requestAnimationFrame(() => {
+          frame = undefined;
+          setViewportSize(`${window.innerWidth}x${window.innerHeight}`);
+        });
+      }
+    };
+    window.addEventListener('resize', onResize);
+    const observer = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(onResize) : undefined;
+    if (outerContainer.current) {
+      observer?.observe(outerContainer.current);
+    }
+    if (htmlContainer.current) {
+      observer?.observe(htmlContainer.current);
+    }
+    return () => {
+      window.removeEventListener('resize', onResize);
+      observer?.disconnect();
+      if (frame !== undefined) {
+        cancelAnimationFrame(frame);
+      }
+    };
+  }, []);
+
+  const isMounted = useRef(true);
+  useEffect(() => {
+    isMounted.current = true;
+    return () => {
+      isMounted.current = false;
+    };
+  }, []);
+
   const debouncedScroll = useDebounce('scroll-save', 250, () => {
-    saveSpot();
+    // The reader unmounts while a new chapter loads. A save still pending from
+    // the old chapter would overwrite the new chapter's spot with the old index.
+    if (!isMounted.current) {
+      return;
+    }
+    saveSpot(position.current.chapterIndex === chapterIndex ? position.current.value : undefined);
   });
 
   return useMemo(() =>
@@ -227,7 +402,7 @@ export function HTMLElementContainer() {
             const pageHeight = (containerBounds?.height ?? 0);
             const pageHeightBuffer = 10;
             const edgeTouchSize = touchWidth / 4;
-            const touchX = e.pageX;
+            const touchX = e.clientX - (containerBounds?.left ?? 0);
             if (touchX < edgeTouchSize) {
               outerContainer.current?.scrollTo({ top: containerScroll - pageHeight + pageHeightBuffer });
               return;
@@ -240,7 +415,10 @@ export function HTMLElementContainer() {
           setIsSettingsOpen((prevState) => !prevState);
         }}
         onScroll={() => {
-          debouncedScroll.current?.();
+          trackScroll();
+          if (!isRestoring.current) {
+            debouncedScroll.current?.();
+          }
           alignProgressIndicator();
         }}
         tabIndex={0}

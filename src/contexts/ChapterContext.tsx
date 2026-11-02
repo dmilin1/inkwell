@@ -4,6 +4,7 @@ import { Chapters, SaveSpot } from '../models/Ebook';
 import { EbookContext } from './EbookContext';
 import { Loader } from '../components/Loader/Loader';
 import { usePrevious } from '../utils/UsePrevious';
+import { ReadingPosition, capturePosition } from '../utils/ReadingPosition';
 
 
 interface ChapterContext {
@@ -15,7 +16,7 @@ interface ChapterContext {
     isChapterSelectOpen: boolean,
     setChapterSelectOpen: (newVal: boolean) => void,
     setChapterIndex: (index: number) => void,
-    saveSpot: () => Promise<void>,
+    saveSpot: (position?: ReadingPosition) => Promise<void>,
     loadSpot: () => Promise<SaveSpot|undefined>,
 };
 
@@ -57,12 +58,21 @@ export function ChapterProvider({ children }: React.PropsWithChildren) {
         }
     }
 
-    const saveSpot = async () => {
-        const scrollHeight = document.getElementById('reader-container')?.scrollTop;
+    /**
+     * Saves the current reading spot. The reader passes the position it is
+     * tracking; otherwise it is captured from the DOM.
+     */
+    const saveSpot = async (position?: ReadingPosition) => {
+        const container = document.getElementById('reader-container');
+        const contents = document.getElementById('reader-contents-container');
+        if (!position && container && contents) {
+            position = capturePosition(container, contents);
+        }
         await ebook?.saveSpot({
             chapterIndex: chapterIndex ?? 0,
-            scrollHeight: scrollHeight ?? 0,
+            scrollHeight: container?.scrollTop ?? 0,
             percentComplete: calcProgressPercent(),
+            position,
         });
         refreshProgress();
     }
