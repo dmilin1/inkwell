@@ -14,6 +14,10 @@ function EbookRow({ sectionTitle, bookData }: EbookRowProps) {
   const { promptToDeleteBook } = useContext(LibraryContext);
   const { changeEbook } = useContext(EbookContext);
 
+  if (!bookData?.length) {
+    return null;
+  }
+
   return (
     <div className='mt-5'>
       <div className='mx-5 text-xl'>{sectionTitle}</div>
@@ -29,11 +33,11 @@ function EbookRow({ sectionTitle, bookData }: EbookRowProps) {
           >
             <div
               className='min-w-[6.3rem] max-w-[6.3rem] min-h-[9rem] md:min-w-[7rem] md:max-w-[7rem] md:min-h-[10rem] bg-bg-secondary rounded-xl bg-[size:100%_100%] cursor-pointer justify-center text-center'
-              style={{
+              style={metadata.coverImgPath ? {
                 backgroundImage: `url('${metadata.coverImgPath}')`
-              }}
+              } : undefined}
             >
-              {metadata.coverImgPath ? '' : [metadata.title, metadata.author].join(' - ')}
+              {metadata.coverImgPath ? '' : [metadata.title, metadata.author].filter(Boolean).join(' - ')}
             </div>
           </ClickAndHold>
         )}

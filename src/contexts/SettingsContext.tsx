@@ -63,12 +63,15 @@ export function SettingsProvider({ children }: React.PropsWithChildren) {
     const [settings, setSettings] = useState(defaultSettings);
 
     const changeSettings = (newSettings: Partial<Settings>) => {
-        const allSettings = {
-            ...settings,
-            ...newSettings,
-        }
-        setSettings(allSettings);
-        Preferences.set({ key: 'settings', value: JSON.stringify(allSettings) });
+        // Based on the latest state, so quick successive changes don't drop each other.
+        setSettings(previous => {
+            const allSettings = {
+                ...previous,
+                ...newSettings,
+            };
+            Preferences.set({ key: 'settings', value: JSON.stringify(allSettings) });
+            return allSettings;
+        });
     }
 
     const loadSavedSettings = async () => {

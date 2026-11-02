@@ -26,7 +26,7 @@ export class StatusBar {
                 SBar.setStyle({ style: Style.Light });
                 break;
             default:
-                throw Error('unknown status bar mode:', mode);
+                throw new Error(`unknown status bar mode: ${mode}`);
         }
     }
 }

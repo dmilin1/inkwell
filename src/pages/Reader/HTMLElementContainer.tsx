@@ -1,11 +1,13 @@
-import { StyleHTMLAttributes, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { StyleHTMLAttributes, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { SettingsContext } from "../../contexts/SettingsContext";
 import { ChapterContext } from "../../contexts/ChapterContext";
 import { StatusBar } from "../../utils/StatusBar";
 import { ScrollPull } from "../../components/ScrollPull/ScrollPull";
 import { useDebounce } from "../../utils/Debounce";
 import getSafeArea from "../../utils/SafeArea";
-import { ReadingPosition, capturePosition, resetPositionCache, restorePosition } from "../../utils/ReadingPosition";
+import {
+  ReadingPosition, capturePosition, findAnchorElement, resetPositionCache, restorePosition, scrollElementToTop,
+} from "../../utils/ReadingPosition";
 
 type TrackedPosition = {
   chapterIndex?: number,
@@ -18,7 +20,7 @@ let progressIndicatorOpacityTimout : NodeJS.Timeout|undefined = undefined;
 
 export function HTMLElementContainer() {
   const {
-    html, chapterIndex, prevChapterIndex, numberOfChapters,
+    html, chapterIndex, numberOfChapters, takeChapterTarget,
     setChapterIndex, saveSpot, loadSpot
   } = useContext(ChapterContext);
   const { settings, setIsSettingsOpen } = useContext(SettingsContext);
@@ -55,7 +57,9 @@ export function HTMLElementContainer() {
   const marginBottom = verticalMarginsSetting + (settings.readingMode === 'paginated' ? safeArea.bottom : 0);
   const verticalMarginTotal = marginTop + marginBottom;
 
-  StatusBar.set(statusBar);
+  useEffect(() => {
+    StatusBar.set(statusBar);
+  }, [statusBar]);
 
   const backgroundStyles: React.CSSProperties = {
     position: 'absolute',
@@ -179,12 +183,17 @@ export function HTMLElementContainer() {
       isRestoring.current = false;
       return;
     }
+    // Read only now: a build that gets superseded must not consume it.
+    const target = takeChapterTarget(chapterIndex ?? 0);
+    const anchorElement = target?.anchor ? findAnchorElement(ref, target.anchor) : null;
     let restoredFrom: ReadingPosition | undefined;
     if (tracked) {
       restorePosition(container, ref, tracked);
       restoredFrom = tracked;
-    } else if ((chapterIndex ?? 0) - (prevChapterIndex ?? 0) === -1) {
-      container.scrollTo({ top: Number.MAX_VALUE });
+    } else if (anchorElement) {
+      scrollElementToTop(container, anchorElement);
+    } else if (target?.atEnd) {
+      container.scrollTop = container.scrollHeight;
     } else if (spot && chapterIndex === spot.chapterIndex) {
       restorePosition(container, ref, spot.position, spot.scrollHeight);
       restoredFrom = spot.position?.anchor ? spot.position : undefined;
@@ -267,13 +276,15 @@ export function HTMLElementContainer() {
       && outerContainer.current
       && chapterIndex !== i
       && i >= 0
-      && i < (numberOfChapters) - 1
+      && i < numberOfChapters
     ) {
       htmlContainer.current.style.opacity = '0';
       htmlContainer.current.innerHTML = '';
     }
+    // Going back a chapter continues from its end.
+    const target = i === (chapterIndex ?? 0) - 1 ? { atEnd: true } : undefined;
     setTimeout(() => {
-      setChapterIndex(i)
+      setChapterIndex(i, target)
     }, 100)
   }
 
@@ -356,10 +367,26 @@ export function HTMLElementContainer() {
   }, []);
 
   const isMounted = useRef(true);
-  useEffect(() => {
+  const latest = useRef({ saveSpot, chapterIndex });
+  latest.current = { saveSpot, chapterIndex };
+  // A layout effect, so the cleanup runs while the reader is still in the DOM
+  // (saveSpot measures it); passive effect cleanups run after it's removed.
+  useLayoutEffect(() => {
     isMounted.current = true;
     return () => {
       isMounted.current = false;
+      /**
+       * Save right away when the reader closes, rather than dropping a save
+       * that's still debounced. Skipped while changing chapters: the tracked
+       * spot belongs to the chapter being left.
+       */
+      if (
+        !isRestoring.current
+        && position.current.value
+        && position.current.chapterIndex === latest.current.chapterIndex
+      ) {
+        latest.current.saveSpot(position.current.value);
+      }
     };
   }, []);
 

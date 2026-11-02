@@ -8,9 +8,13 @@ import { ChapterProvider } from './contexts/ChapterContext';
 
 import './resources/fonts/fonts';
 import { LibraryProvider } from './contexts/LibraryContext';
+import { useBackHandler } from './utils/BackButton';
 
 function App() {
-  const { ebook } = useContext(EbookContext);
+  const { ebook, closeEbook } = useContext(EbookContext);
+
+  // Android Back closes the book (the menus register their own handlers on top).
+  useBackHandler(!!ebook, closeEbook);
 
   return ebook ? <ChapterProvider><Reader/></ChapterProvider> : <Home/>;
 }

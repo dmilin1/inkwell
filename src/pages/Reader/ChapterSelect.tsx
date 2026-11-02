@@ -3,6 +3,7 @@ import { ChapterContext } from '../../contexts/ChapterContext';
 import { faChevronLeft, faChevronRight, faGlasses } from '@fortawesome/free-solid-svg-icons';
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { SettingsContext } from '../../contexts/SettingsContext';
+import { useBackHandler } from '../../utils/BackButton';
 
 
 export default function ChapterSelect() {
@@ -12,8 +13,11 @@ export default function ChapterSelect() {
   } = useContext(ChapterContext);
   const { setIsSettingsOpen } = useContext(SettingsContext);
 
+  useBackHandler(isChapterSelectOpen, () => setChapterSelectOpen(false));
+
   useEffect(() => {
-    document.querySelector(`#chapter-${chapterIndex}`)?.scrollIntoView();
+    // Prefixed so it can't collide with element ids inside the book.
+    document.getElementById(`chapter-select-${chapterIndex}`)?.scrollIntoView({ block: 'center' });
   }, [isChapterSelectOpen]);
 
   return (
@@ -35,8 +39,8 @@ export default function ChapterSelect() {
         <div className='divide-bg-primary divide-y-2'>
           {chapters?.ordered().map((chapter, i) =>
             <div
-              key={chapter.index}
-              id={`chapter-${i}`}
+              key={chapter.path}
+              id={`chapter-select-${i}`}
               className='h-16 px-6 justify-between items-center flex-row cursor-pointer'
               onClick={() => {
                 setChapterIndex(i);
@@ -44,13 +48,15 @@ export default function ChapterSelect() {
                 setIsSettingsOpen(false);
               }}
             >
-              <div className='pr-4 line-clamp-2 flex-1 text-sm'>{i+1}) {chapter.title}</div>
+              <div className={`pr-4 line-clamp-2 flex-1 text-sm ${chapter.title ? '' : 'italic text-text-secondary'}`}>
+                {i+1}) {chapter.title ?? 'Untitled section'}
+              </div>
               <div className='w-8'>
                 <FontAwesomeIcon className='text-xl' icon={
                   chapterIndex === i ? faGlasses : faChevronRight
                 }/>
               </div>
-            </div>  
+            </div>
           )}
         </div>
       </div>

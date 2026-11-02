@@ -7,7 +7,7 @@ import { KeyboardWrapper } from '../../contexts/KeyboardContext';
 import { ChapterContext } from '../../contexts/ChapterContext';
 import { StatusBarMode } from '../../utils/StatusBar';
 import { FaderTransition } from '../../components/FaderTransition/FaderTransition';
-import { LibraryContext } from '../../contexts/LibraryContext';
+import { useBackHandler } from '../../utils/BackButton';
 
 interface SettingType {
   id: keyof Settings,
@@ -101,7 +101,7 @@ const layoutSettings: SettingType[] = [{
   }]
 }, { 
   id: 'lineSpacing',
-  name: 'Line Spacing (px)',
+  name: 'Line Spacing (×)',
   type: 'number',
   bounds: [0.5, 5],
 }, {
@@ -187,11 +187,12 @@ const settingsCategories = [{
 
 export default function SettingsMenu() {
   const { settings, changeSettings, isSettingsOpen, setIsSettingsOpen } = useContext(SettingsContext);
-  const { metadata, changeEbook } = useContext(EbookContext);
+  const { metadata, closeEbook } = useContext(EbookContext);
   const { setChapterSelectOpen } = useContext(ChapterContext);
-  const { loadEbooks } = useContext(LibraryContext);
 
   const [categoryIndex, setCategoryIndex] = useState(0);
+
+  useBackHandler(isSettingsOpen, () => setIsSettingsOpen(false));
 
   return (
     <div className='w-full h-full absolute z-30 pointer-events-none select-none'>  
@@ -205,9 +206,8 @@ export default function SettingsMenu() {
               <div
                 className='w-16 text-center justify-center cursor-pointer'
                 onClick={() => {
-                  changeEbook(undefined);
                   setIsSettingsOpen(false);
-                  setTimeout(() => loadEbooks({ reloadStatsOnly: true }), 100);
+                  closeEbook();
                 }}
               >
                 <FontAwesomeIcon className='text-2xl' icon={faChevronLeft} />
@@ -255,9 +255,17 @@ export default function SettingsMenu() {
                           className='text-center w-[35%] rounded-lg bg-bg-secondary h-9'
                           defaultValue={settings[setting.id]}
                           onBlur={e => {
+                            const raw = e.target.value.trim();
+                            const parsed = Number(raw);
+                            if (raw === '' || !Number.isFinite(parsed)) {
+                              // An empty or invalid entry keeps the current value
+                              // (Number('') would be 0, i.e. the minimum).
+                              e.target.value = String(settings[setting.id]);
+                              return;
+                            }
                             const low = setting.bounds?.[0] ?? Number.MIN_SAFE_INTEGER;
                             const high = setting.bounds?.[1] ?? Number.MAX_SAFE_INTEGER;
-                            const num = Math.min(high, Math.max(low, Number(e.target.value)));
+                            const num = Math.min(high, Math.max(low, parsed));
                             changeSettings({ [setting.id]: num });
                             e.target.value = String(num);
                           }}
@@ -288,8 +296,17 @@ export default function SettingsMenu() {
                         <input
                           className='w-24 h-9 bg-bg-secondary'
                           defaultValue={settings[setting.id]}
-                          onBlur={e => {
-                            changeSettings({ [setting.id]: e.target.value });
+                          ref={input => {
+                            // The native `change` event fires when the picker commits
+                            // a color (React's onChange fires on every drag step, and
+                            // iOS may close the picker without blurring the input).
+                            if (input) {
+                              input.onchange = () => {
+                                if (input.value !== settings[setting.id]) {
+                                  changeSettings({ [setting.id]: input.value });
+                                }
+                              };
+                            }
                           }}
                           type='color'
                         />

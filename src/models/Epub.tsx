@@ -1,23 +1,37 @@
-import $ from "jquery";
 import JSZip from 'jszip';
 import { xml2js, Element } from 'xml-js';
-import { Chapter, Chapters, Ebook, HTMLOptions } from './Ebook';
+import { Chapter, Chapters, Ebook, HTMLOptions, Metadata } from './Ebook';
 import { LoadLibraryParams } from "../contexts/LibraryContext";
 
-interface Manifest {
-    [id: string]: string;
+interface ManifestItem {
+    id: string;
+    /** Full path of the file inside the zip (resolved and URL-decoded). */
+    path: string;
+    mediaType?: string;
+    properties: string[];
 }
+
+/** An opened EPUB: the zip plus its parsed package document. */
+interface Package {
+    zip: JSZip;
+    opf: EzXML;
+    opfPath: string;
+    manifest: { [id: string]: ManifestItem };
+    /** Lower-cased zip paths, for case-insensitive lookups. */
+    lowerCasePaths: Map<string, string>;
+}
+
+const XLINK_NS = 'http://www.w3.org/1999/xlink';
 
 export default class Epub extends Ebook {
 
-    zip?: JSZip;
-    rootFileFolderPath?: string;
-    private rootFile?: EzXML;
-    private manifest?: Manifest;
-    manifestBlobs?: Manifest;
-    chapters?: Chapters;
+    /** The book while it's open for reading; closed again by close(). */
+    private session?: Promise<Package>;
+    private chapters?: EpubChapters;
+    /** Object URLs for the images of the chapter currently displayed. */
+    private objectUrls: string[] = [];
 
-    async loadMetadata({ reload, reloadStatsOnly }: LoadLibraryParams = {}) {
+    async loadMetadata({ reload, reloadStatsOnly }: LoadLibraryParams = {}): Promise<Metadata> {
         let metadata = await this.getCachedMetadata();
         if (metadata && reloadStatsOnly) {
             metadata = {
@@ -28,23 +42,21 @@ export default class Epub extends Ebook {
             await this.setCachedMetadata(metadata);
         }
         if (!metadata || reload) {
-            await this.openFile();
-            const metadataObj = this.rootFile!.package.metadata;
+            // Don't keep the whole book in memory just to show it in the library.
+            const pkg = this.session ? await this.session : await this.readPackage();
+            const metadataObj = pkg.opf.package?.metadata;
+            const texts = (name: string): string[] => (metadataObj?.elems(name) ?? [])
+                .map((elem: EzXML) => elem.innerText.trim())
+                .filter(Boolean);
             metadata = {
                 filePath: this.filePath,
-                title: metadataObj?.elems('dc:title')?.[0].innerText,
-                author: metadataObj?.elems('dc:creator')
-                    ?.map((elem: EzXML) => elem.innerText)
-                    .join(' & '),
-                language: metadataObj?.elems('dc:language')
-                    ?.map((elem: EzXML) => elem.innerText)
-                    .join(', '),
-                date: metadataObj?.elems('dc:language')?.[0]?.innerText,
-                description: metadataObj?.elems('dc:description')?.[0]?.innerText,
-                subjects: metadataObj.items()
-                    .filter((e: EzXML) => e.name === 'dc:subject')
-                    .map((e: EzXML) => e.innerText),
-                coverImgPath: await this.loadCoverImg(),
+                title: texts('dc:title')[0],
+                author: texts('dc:creator').join(' & ') || undefined,
+                language: texts('dc:language').join(', ') || undefined,
+                date: texts('dc:date')[0],
+                description: texts('dc:description')[0],
+                subjects: texts('dc:subject'),
+                coverImgPath: await this.loadCoverImg(pkg),
                 stats: await this.getStats(),
                 progress: await this.loadSpot(),
             };
@@ -54,186 +66,251 @@ export default class Epub extends Ebook {
     }
 
     async loadChapters(): Promise<Chapters> {
-        await this.openFile();
-        const tocId = this.rootFile!.package.spine.attribute('toc');
-        const tocFilePath = this.manifest?.[tocId];
-        const tocFile = await this.readXML(this.rootFileFolderPath! + tocFilePath);
-        const flattenedNavMap = this.flattenNavMap(tocFile.ncx.navMap);
-        try {
-            /**
-             * I added this whole try loop to test properly loading from the spine because
-             * that's the "correct" way to do it. Previously, I was loading from the toc file.
-             * I'm not sure if this will work, but I'm going to try it out. It's wrapped in
-             * a try loop so it'll fall back to the old way of doing things if it doesn't work
-             * for some ebook files.
-             */
-
-            // Gunna try to get the chapters from the spine first
-            const chapters: EpubChapter[] = [];
-            // Make an object matching chapter file paths to their names in the toc file
-            const chapterNames = flattenedNavMap.reduce((obj: { [key: string]: string }, chapter: EzXML) => {
-                let chapterFilePath = chapter.content.attribute('src') as string;
-                chapterFilePath = decodeURIComponent(chapterFilePath);
-                // trim the file path to just include the file name
-                chapterFilePath = chapterFilePath.replace(/(.*\/)|((#|&|\?).*$)/g, '');
-                obj[chapterFilePath] = chapter.navLabel.text.innerText;
-                return obj;
-            }, {});
-            this.rootFile!.package.spine.items().forEach((chapter: EzXML, i: number) => {
-                const chapterId = chapter.attribute('idref');
-                if (!chapterId || !this.manifest![chapterId]) {
-                    throw `Chapter with id "${chapterId}" not found in manifest`;
-                }
-                const relativePath = this.manifest![chapterId];
-                const fileName = relativePath.replace(/(.*\/)|((#|&|\?).*$)/g, '');
-                console.log(fileName);
-                const chapterName = chapterNames[fileName];
-                chapters.push(new EpubChapter(
-                    this,
-                    chapterName,
-                    relativePath,
-                    i
-                ));
-            });
-            console.log(chapterNames);
-            return new EpubChapters(chapters);
-        } catch (e) {
-            console.error(e);
+        if (this.chapters) {
+            return this.chapters;
         }
-        const orderedChapters = flattenedNavMap.map((chapter: EzXML, i: number) => 
-            new EpubChapter(
-                this,
-                chapter.navLabel.text.innerText,
-                chapter.content.attribute('src'),
-                i,
-            )
-        );
-        this.chapters = new EpubChapters(orderedChapters);
+        const pkg = await this.open();
+        const titles = await this.loadTocTitles(pkg);
+
+        // Reading order comes from the spine; fall back to the table of contents.
+        let paths: string[] = [];
+        for (const itemref of pkg.opf.package?.spine?.elems('itemref') ?? []) {
+            const item = pkg.manifest[String(itemref.attribute('idref'))];
+            if (item && !paths.includes(item.path)) {
+                paths.push(item.path);
+            }
+        }
+        if (paths.length === 0) {
+            paths = [...titles.keys()];
+        }
+        const chapters = paths
+            .filter(path => findFile(pkg, path))
+            .map((path, i) => new EpubChapter(this, titles.get(path), path, i, fileSize(findFile(pkg, path))));
+        if (chapters.length === 0) {
+            throw new Error('This book has no readable chapters.');
+        }
+        this.chapters = new EpubChapters(chapters);
         return this.chapters;
     }
 
-    private async openFile(): Promise<void> {
-        if (this.base64) {
-            this.zip = await JSZip.loadAsync(this.base64, { base64: true });
-        } else {
-            this.zip = await fetch(this.filePath)
-            .then(res => res.blob())
-            .then(JSZip.loadAsync);
+    /** Releases the opened book and its images. */
+    close() {
+        this.revokeObjectUrls();
+        this.session = undefined;
+        this.chapters = undefined;
+    }
+
+    async renderChapter(chapter: EpubChapter, { changeChapter, scrollToAnchor }: HTMLOptions): Promise<HTMLElement[]> {
+        const pkg = await this.open();
+        const file = findFile(pkg, chapter.path);
+        if (!file) {
+            throw new Error(`The chapter file "${chapter.path}" is missing from this book.`);
         }
-        const containerFile = await this.readXML('META-INF/container.xml');
-        const rootFilePath = containerFile
-            .container.rootfiles.rootfile
-            .attribute('full-path') as string;
-        this.rootFile = await this.readXML(rootFilePath);
-        this.rootFileFolderPath = rootFilePath.replace(
-            /* Replace everything after first forward slash,
-               or if no forward slash found, replace everything */
-            /(\/.+$)|(^[^\/]+$)/,
-            rootFilePath.includes('/') ? '/' : ''
-        );
-        this.loadManifest();
-        // let files = await Filesystem.readdir({
-        //     path: '/',
-        //     directory: Directory.Documents,
-        // });
-    }
+        const doc = parseXHTML(await file.async('text'));
+        const body = doc.getElementsByTagName('body')[0] ?? doc.documentElement;
 
-    private loadManifest(): Manifest {
-        const manifestItems = this.rootFile!.package.manifest.items();
-        this.manifest = manifestItems.reduce((obj: Manifest, item: EzXML) => ({
-            ...obj,
-            ...(item.attribute('id') ? {
-                [item.attribute('id')!]: item.attribute('href')
-            } : {})
-        }), {});
-        return this.manifest!;
-    }
+        // The reader applies its own typography; the book's stylesheets and
+        // scripts must not leak into the app.
+        body.querySelectorAll('script, style, link').forEach(elem => elem.remove());
 
-    async loadManifestBlobs(): Promise<Manifest> {
-        let promises: Promise<string>[] = [];
-        Object.values(this.manifest!).forEach(async file => {
-            promises.push(
-                this.zip!.file(this.rootFileFolderPath + file)!
-                .async('blob')!
-                .then(URL.createObjectURL)
-            );
-        });
-        const blobs = await Promise.all(promises);
-        this.manifestBlobs = Object.fromEntries(blobs.map((blob, i) =>
-            [Object.values(this.manifest!)[i], blob]
-        ))
-        return this.manifestBlobs;
-    }
-
-    private async loadCoverImg(): Promise<string | undefined> {
-        const coverId = this.rootFile!.package.metadata
-            .items()
-            .filter((obj: EzXML) => obj.attribute('name') === 'cover')
-            ?.[0]?.attribute('content');
-        const coverPath = this.manifest![coverId] ?? null
-        if (coverPath) {
-            return new Promise(async res => {
-                const blob = await this.zip!.file(this.rootFileFolderPath + coverPath)?.async('blob')!
-                const reader = new FileReader();
-                reader.readAsDataURL(blob);
-                reader.onloadend = () => {
-                    let base64data = reader.result;                
-                    res(String(base64data));
+        body.querySelectorAll('a[href]').forEach(link => {
+            const href = link.getAttribute('href')!.trim();
+            if (isExternalUrl(href)) {
+                link.setAttribute('target', '_blank');
+                link.setAttribute('rel', 'noopener');
+                link.addEventListener('click', e => e.stopPropagation());
+                return;
+            }
+            const hashIndex = href.indexOf('#');
+            const anchor = hashIndex >= 0 ? safeDecode(href.slice(hashIndex + 1)) : undefined;
+            const targetPath = href.startsWith('#') ? chapter.path : resolvePath(chapter.path, href);
+            link.addEventListener('click', e => {
+                // Don't also turn the page or toggle the menu.
+                e.preventDefault();
+                e.stopPropagation();
+                if (targetPath === chapter.path) {
+                    if (anchor) {
+                        scrollToAnchor(anchor);
+                    }
+                    return;
+                }
+                const target = this.chapters?.path(targetPath);
+                if (target) {
+                    changeChapter(target, anchor);
                 }
             });
-        }
-    }
-
-    private async readXML(filepath: string): Promise<EzXML> {
-        if (!this.zip) {
-            throw 'Tried reading before opening file';
-        }
-        const xml = await this.zip!.file(filepath)!.async('text');
-        const xmlObj = xml2js(xml);
-        return new EzXML(xmlObj as Element);
-    }
-
-    private flattenNavMap(navItem: EzXML): EzXML[] {
-        const items = [];
-        if (navItem.navLabel && navItem.content) {
-            items.push(navItem);
-        }
-        navItem.items().forEach(item => {
-            if (item.name == 'navPoint') {
-                items.push(...this.flattenNavMap(item));
-            }
         });
-        return items;
+
+        // Swap image references (<img src> and SVG <image href>) for the files in the zip.
+        // Done before the nodes are inserted, so the browser never requests the relative paths.
+        this.revokeObjectUrls();
+        const mediaTypes = new Map(Object.values(pkg.manifest).map(item => [item.path, item.mediaType]));
+        await Promise.all([...body.querySelectorAll('img, image')].map(async elem => {
+            const isImg = elem.localName === 'img';
+            const src = isImg
+                ? elem.getAttribute('src')
+                : elem.getAttribute('href') ?? elem.getAttributeNS(XLINK_NS, 'href');
+            if (!src || isExternalUrl(src)) {
+                return;
+            }
+            const path = resolvePath(chapter.path, src);
+            const imageFile = findFile(pkg, path);
+            if (!imageFile) {
+                return;
+            }
+            const blob = new Blob([await imageFile.async('blob')], {
+                type: mediaTypes.get(path) ?? guessImageType(path),
+            });
+            const url = URL.createObjectURL(blob);
+            this.objectUrls.push(url);
+            // SVG 2 `href` takes precedence over `xlink:href`.
+            elem.setAttribute(isImg ? 'src' : 'href', url);
+        }));
+
+        return [...body.children] as HTMLElement[];
+    }
+
+    private open(): Promise<Package> {
+        if (!this.session) {
+            this.session = this.readPackage().catch(e => {
+                this.session = undefined;
+                throw e;
+            });
+        }
+        return this.session;
+    }
+
+    private async readPackage(): Promise<Package> {
+        let zip: JSZip;
+        if (this.readFileData) {
+            const data = await this.readFileData();
+            zip = await JSZip.loadAsync(data, typeof data === 'string' ? { base64: true } : undefined);
+        } else {
+            const res = await fetch(this.filePath);
+            if (!res.ok) {
+                throw new Error(`Couldn't load the book (HTTP ${res.status}).`);
+            }
+            zip = await JSZip.loadAsync(await res.blob());
+        }
+        const lowerCasePaths = new Map(Object.keys(zip.files).map(name => [name.toLowerCase(), name]));
+        const partial = { zip, lowerCasePaths };
+
+        const container = await readXML(partial, 'META-INF/container.xml');
+        const opfPath = container.container?.rootfiles?.elems('rootfile')[0]?.attribute('full-path');
+        if (!opfPath) {
+            throw new Error('This file is not a valid EPUB (it has no package document).');
+        }
+        const opf = await readXML(partial, String(opfPath));
+        const manifest: Package['manifest'] = {};
+        for (const item of opf.package?.manifest?.elems('item') ?? []) {
+            const id = item.attribute('id');
+            const href = item.attribute('href');
+            if (id === undefined || href === undefined) {
+                continue;
+            }
+            manifest[String(id)] = {
+                id: String(id),
+                path: resolvePath(String(opfPath), String(href)),
+                mediaType: item.attribute('media-type') as string | undefined,
+                properties: String(item.attribute('properties') ?? '').split(/\s+/).filter(Boolean),
+            };
+        }
+        return { zip, opf, opfPath: String(opfPath), manifest, lowerCasePaths };
+    }
+
+    /**
+     * Chapter titles by file path, from the EPUB 2 NCX or the EPUB 3 navigation
+     * document. A file can hold several chapters; it's labelled with the first.
+     * Neither is required, so failures just mean untitled chapters.
+     */
+    private async loadTocTitles(pkg: Package): Promise<Map<string, string>> {
+        const titles = new Map<string, string>();
+        const add = (basePath: string, href: string | undefined, label: string | undefined) => {
+            if (!href || !label?.trim() || isExternalUrl(href)) {
+                return;
+            }
+            const path = resolvePath(basePath, href);
+            if (!titles.has(path)) {
+                titles.set(path, label.trim().replace(/\s+/g, ' '));
+            }
+        };
+        const items = Object.values(pkg.manifest);
+        try {
+            const tocId = pkg.opf.package?.spine?.attribute('toc');
+            const ncx = (tocId !== undefined ? pkg.manifest[String(tocId)] : undefined)
+                ?? items.find(item => item.mediaType === 'application/x-dtbncx+xml');
+            if (ncx && findFile(pkg, ncx.path)) {
+                const ncxDoc = await readXML(pkg, ncx.path);
+                const walk = (navPoint: EzXML) => {
+                    add(ncx.path, navPoint.content?.attribute('src') as string | undefined, navPoint.navLabel?.text?.innerText);
+                    navPoint.elems('navPoint').forEach(walk);
+                };
+                ncxDoc.ncx?.navMap?.elems('navPoint').forEach(walk);
+            }
+        } catch (e) {
+            console.warn('Could not read the NCX table of contents', e);
+        }
+        if (titles.size === 0) {
+            try {
+                const nav = items.find(item => item.properties.includes('nav'));
+                const navFile = nav && findFile(pkg, nav.path);
+                if (nav && navFile) {
+                    const navDoc = parseXHTML(await navFile.async('text'));
+                    const navs = [...navDoc.getElementsByTagName('nav')];
+                    const toc = navs.find(n => (n.getAttribute('epub:type') ?? n.getAttributeNS('http://www.idpf.org/2007/ops', 'type'))?.split(/\s+/).includes('toc'))
+                        ?? navs[0];
+                    toc?.querySelectorAll('a[href]').forEach(a => add(nav.path, a.getAttribute('href') ?? undefined, a.textContent ?? undefined));
+                }
+            } catch (e) {
+                console.warn('Could not read the EPUB 3 navigation document', e);
+            }
+        }
+        return titles;
+    }
+
+    private async loadCoverImg(pkg: Package): Promise<string | undefined> {
+        try {
+            // EPUB 2: <meta name="cover" content="manifest-id">. EPUB 3: properties="cover-image".
+            const coverId = pkg.opf.package?.metadata?.elems('meta')
+                .find((meta: EzXML) => meta.attribute('name') === 'cover')
+                ?.attribute('content');
+            const item = (coverId !== undefined ? pkg.manifest[String(coverId)] : undefined)
+                ?? Object.values(pkg.manifest).find(i => i.properties.includes('cover-image'));
+            const file = item && findFile(pkg, item.path);
+            if (!item || !file) {
+                return undefined;
+            }
+            const base64 = await file.async('base64');
+            return `data:${item.mediaType ?? guessImageType(item.path)};base64,${base64}`;
+        } catch (e) {
+            console.warn('Could not load the cover image', e);
+            return undefined;
+        }
+    }
+
+    private revokeObjectUrls() {
+        this.objectUrls.forEach(url => URL.revokeObjectURL(url));
+        this.objectUrls = [];
     }
 }
 
-interface ChaptersByFileName {
-    [fileName: string]: Chapter
+interface ChaptersByPath {
+    [path: string]: Chapter
 }
 
 class EpubChapters implements Chapters {
     chaptersInOrder: Chapter[];
-    chaptersByFileName: ChaptersByFileName;
+    chaptersByPath: ChaptersByPath;
 
     constructor(chapters: Chapter[]) {
-        let uniqueChaptersFound = 0
-        this.chaptersByFileName = chapters.reduce<ChaptersByFileName>(
-            (total, chapter) => {
-                if (!total[chapter.fileName]) {
-                    total[chapter.fileName] = chapter;
-                    total[chapter.fileName].index = uniqueChaptersFound;
-                    uniqueChaptersFound += 1;
-                }
-                return total;
-            }, {}
-        );
-        this.chaptersInOrder = Object.values(this.chaptersByFileName);
+        this.chaptersInOrder = chapters;
+        this.chaptersByPath = Object.fromEntries(chapters.map(chapter => [chapter.path, chapter]));
     }
 
-    path(filepath: string): Chapter {
-        return this.chaptersByFileName[filepath];
+    path(path: string): Chapter | undefined {
+        return this.chaptersByPath[path];
     }
-    index(i: number): Chapter {
+    index(i: number): Chapter | undefined {
         return this.chaptersInOrder[i];
     }
     ordered(): Chapter[] {
@@ -242,121 +319,123 @@ class EpubChapters implements Chapters {
 }
 
 class EpubChapter implements Chapter {
-    epub: Epub;
-    title: string;
-    fileName: string;
-    size: number;
-    index: number;
+    constructor(
+        private epub: Epub,
+        public title: string | undefined,
+        public path: string,
+        public index: number,
+        public size: number,
+    ) {}
 
-    constructor(epub: Epub, title: string, relativePath: string, index: number) {
-        this.epub = epub;
-        this.title = title;
-        this.fileName = Helpers.parseFile(relativePath);
-        // @ts-ignore
-        this.size = this.loadFile(this.fileName)._data.uncompressedSize;
-        this.index = index;
-    }
-
-    async loadHTML({ changeChapter }: HTMLOptions): Promise<HTMLElement[]> {
-        let file = this.loadFile(this.fileName);
-        let text = await file?.async('text')!;
-        await this.epub.loadManifestBlobs();
-        // Object.entries(this.epub.manifestBlobs!).forEach(([file, blob]) => {
-        //     text = text.replaceAll(file, blob);
-        // })
-        const parser = new DOMParser();
-        const htmlDoc = parser.parseFromString(text, 'text/xml');
-        const html = $(htmlDoc).find('html').children();
-        html.find('a[href]').each((_, elem) => {
-            const baseLink = Helpers.parseFile($(elem).attr('href')!);
-            const isInManifest = Object.keys(this.epub.manifestBlobs!).find(path =>
-                path.endsWith(baseLink)
-            );
-            if (isInManifest) {
-                $(elem).on('click', (e) => {
-                    e.preventDefault();
-                    changeChapter(this.epub.chapters!.path(baseLink));
-                });
-            } else {
-                $(elem).attr('target', '_blank');
-            }
-        });
-        html.find('image, img').map(async (_, elem) => {
-            const imgPath = $(elem).attr('src');
-            if (imgPath) {
-                const imgFileName = Helpers.parseFile(imgPath);
-                const file = this.loadFile(imgFileName);
-                const blob = await file.async('blob');
-                const newURL = URL.createObjectURL(blob);
-                $(elem).attr('src', newURL);
-            }
-        })
-        html.find("*").filter((_, elem) => {
-            return !![...elem.childNodes]
-                .find(node =>
-                    node.nodeType === Node.TEXT_NODE
-                    && node.parentElement === elem
-                );
-        }).each((i, elem) => {
-            // for (let node of Object.values(elem.childNodes)) {
-            //     if (node.nodeType !== Node.TEXT_NODE) {
-            //         continue;
-            //     }
-            //     const parentSpan = document.createElement('span');
-            //     node.textContent
-            //         ?.replaceAll(/\s+/g, ' ') // Changes all strings of white space characters into a single space
-            //         ?.split(' ')
-            //         .filter(txt => txt)
-            //         .forEach(txt => {
-            //             const wordElem = document.createElement('span');
-            //             wordElem.textContent = txt + ' ';
-            //             parentSpan.append(wordElem);
-            //         });
-            //     node.replaceWith(parentSpan);
-            // }
-        });
-        return html.get();
-    }
-
-    loadFile(path: string) {
-        const urlSafePath = decodeURIComponent(path);
-        const regexSafePath = urlSafePath.replace(/[/\-\\^$*+?.()|[\]{}]/g, '\\$&');
-        const regex = new RegExp(regexSafePath);
-        let file = this.epub.zip!.file(regex)[0];
-        return file;
+    loadHTML(options: HTMLOptions): Promise<HTMLElement[]> {
+        return this.epub.renderChapter(this, options);
     }
 }
 
+/** Finds a file in the zip by exact path, falling back to a case-insensitive match. */
+function findFile(pkg: Pick<Package, 'zip' | 'lowerCasePaths'>, path: string): JSZip.JSZipObject | null {
+    const file = pkg.zip.file(path);
+    if (file) {
+        return file;
+    }
+    const actual = pkg.lowerCasePaths.get(path.toLowerCase());
+    return actual ? pkg.zip.file(actual) : null;
+}
+
+function fileSize(file: JSZip.JSZipObject | null): number {
+    // JSZip doesn't expose the size publicly.
+    return (file as unknown as { _data?: { uncompressedSize?: number } })?._data?.uncompressedSize ?? 0;
+}
+
+async function readXML(pkg: Pick<Package, 'zip' | 'lowerCasePaths'>, path: string): Promise<EzXML> {
+    const file = findFile(pkg, path);
+    if (!file) {
+        throw new Error(`This EPUB is missing "${path}".`);
+    }
+    return new EzXML(xml2js(await file.async('text')) as Element);
+}
+
+/** Parses an (X)HTML document, falling back to the HTML parser when it isn't well-formed XML. */
+function parseXHTML(text: string): Document {
+    const xml = new DOMParser().parseFromString(text, 'application/xhtml+xml');
+    if (xml.getElementsByTagName('parsererror').length === 0) {
+        return xml;
+    }
+    // e.g. HTML entities such as &nbsp; that XML doesn't define.
+    return new DOMParser().parseFromString(text, 'text/html');
+}
+
+function isExternalUrl(href: string): boolean {
+    return /^[a-z][a-z0-9+.-]*:/i.test(href);
+}
+
+function safeDecode(str: string): string {
+    try {
+        return decodeURIComponent(str);
+    } catch {
+        return str;
+    }
+}
+
+/**
+ * Resolves `href` (relative to the file at `basePath`, URL-encoded, possibly
+ * with a #fragment or ?query) to a full path inside the zip.
+ */
+export function resolvePath(basePath: string, href: string): string {
+    const decoded = safeDecode(href.replace(/[#?].*$/, ''));
+    const parts = decoded.startsWith('/') ? [] : basePath.split('/').slice(0, -1);
+    for (const segment of decoded.split('/')) {
+        if (segment === '' || segment === '.') {
+            continue;
+        }
+        if (segment === '..') {
+            parts.pop();
+        } else {
+            parts.push(segment);
+        }
+    }
+    return parts.join('/');
+}
+
+function guessImageType(path: string): string {
+    const ext = path.split('.').pop()?.toLowerCase();
+    switch (ext) {
+        case 'png': return 'image/png';
+        case 'gif': return 'image/gif';
+        case 'svg': return 'image/svg+xml';
+        case 'webp': return 'image/webp';
+        default: return 'image/jpeg';
+    }
+}
+
+/** Convenience wrapper around xml-js output: `node.child`, `.attribute()`, `.elems()`. */
 class EzXML {
 
     [key: string]: any;
-    
+
     xml: Element;
 
     constructor(xml: Element) {
         this.xml = xml;
         return new Proxy(this, { get: (target, key) => {
-            if (target[key as keyof EzXML]) {
-                return this[key as keyof EzXML];
-            }
-            if (['name', 'type'].includes(key as string)) {
-                return this.xml[key as keyof Element];
-            }
-            if (key === 'innerText') {
-                return this.xml.elements?.[0].text ?? '';
-            }
-            if (!this.xml.elements) {
-                throw 'xml object had no elements';
-            }
-            const elems = this.xml.elements?.filter(elem => elem.name === key)!;
-            if (elems?.length < 1) {
+            if (typeof key !== 'string') {
                 return undefined;
             }
-            if (elems?.length > 1) {
-                console.error(`xml object has more than one element matching "${key as string}". Returning first item.`);
-                return elems[0];
+            if (key in target) {
+                return target[key as keyof EzXML];
             }
-            return new EzXML(elems[0]);
+            if (key === 'name' || key === 'type') {
+                return this.xml[key];
+            }
+            if (key === 'innerText') {
+                return textOf(this.xml);
+            }
+            if (key === 'then') {
+                // Not a thenable (so it can be returned from async functions).
+                return undefined;
+            }
+            const elem = this.xml.elements?.find(e => e.name === key);
+            return elem ? new EzXML(elem) : undefined;
         }});
     }
 
@@ -376,10 +455,8 @@ class EzXML {
     }
 }
 
-
-class Helpers {
-    /* Given a file path, parses out the file name */
-    static parseFile(str: string): string {
-        return str.replaceAll(/(.*\/)|((#|&|\?).*$)/g, '')
-    }
+function textOf(xml: Element): string {
+    return (xml.elements ?? [])
+        .map(e => e.type === 'text' || e.type === 'cdata' ? String(e.text ?? e.cdata ?? '') : textOf(e))
+        .join('');
 }

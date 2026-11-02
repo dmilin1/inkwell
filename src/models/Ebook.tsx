@@ -5,10 +5,11 @@ import { ReadingPosition } from '../utils/ReadingPosition';
 export interface Ebook {
     filePath: string;
     builtIn: boolean;
-    base64?: string;
 
     loadMetadata(loadOptions?: LoadLibraryParams): Promise<Metadata>;
     loadChapters(): Promise<Chapters>;
+    /** Frees the memory used while the book was open for reading. */
+    close(): void;
     saveSpot(data: SaveSpot): Promise<void>;
     loadSpot(): Promise<SaveSpot|null>;
 }
@@ -30,15 +31,22 @@ export type Metadata = {
     coverImgPath?: string;
     stats: Stats;
     progress: SaveSpot;
+    /** Set when the book couldn't be read; it's still listed so it can be deleted. */
+    error?: string;
 }
 
 export interface HTMLOptions {
-    changeChapter: (newChapter: Chapter) => void;
+    /** Go to another chapter, optionally to an element id within it. */
+    changeChapter: (newChapter: Chapter, anchor?: string) => void;
+    /** Scroll to an element id within the current chapter. */
+    scrollToAnchor: (anchor: string) => void;
 }
 
 export interface Chapter {
-    title: string,
-    fileName: string,
+    /** From the table of contents; undefined for untitled sections. */
+    title?: string,
+    /** Full path of the chapter file inside the book. */
+    path: string,
     size: number,
     index: number,
 
@@ -46,8 +54,8 @@ export interface Chapter {
 }
 
 export interface Chapters {
-    path(filepath: string): Chapter;
-    index(i: number): Chapter;
+    path(path: string): Chapter | undefined;
+    index(i: number): Chapter | undefined;
     ordered(): Chapter[];
 }
 
@@ -63,13 +71,16 @@ export interface SaveSpot {
 export class Ebook implements Ebook {
     filePath: string;
     builtIn: boolean;
-    base64?: string;
+    /** Reads an imported book's file. Built-in books are fetched from `filePath` instead. */
+    protected readFileData?: () => Promise<string | Blob>;
 
-    constructor(filePath: string, blob?: string) {
+    constructor(filePath: string, readFileData?: () => Promise<string | Blob>) {
         this.filePath = filePath;
-        this.builtIn = !blob;
-        this.base64 = blob;
+        this.builtIn = !readFileData;
+        this.readFileData = readFileData;
     }
+
+    close() {}
 
     async getCachedMetadata(): Promise<Metadata|null> {
         const key = `${this.filePath}-cachedMetadata`;
@@ -124,6 +135,11 @@ export class Ebook implements Ebook {
     async saveSpot(data: SaveSpot) {
         const key = `${this.filePath}-saveSpot`;
         await Preferences.set({ key, value: JSON.stringify(data) });
+    }
+
+    async deleteSpot() {
+        const key = `${this.filePath}-saveSpot`;
+        await Preferences.remove({ key });
     }
 
     async loadSpot(): Promise<SaveSpot> {

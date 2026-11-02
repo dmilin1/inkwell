@@ -229,6 +229,17 @@ function anchorDelta(container: HTMLElement, contents: HTMLElement, anchor: Read
     return rect.top - visibleTop(container);
 }
 
+/** Finds an element in the chapter by its id (e.g. the target of a footnote link). */
+export function findAnchorElement(contents: HTMLElement, id: string): Element | null {
+    return contents.querySelector(`[id="${CSS.escape(id)}"]`)
+        ?? contents.querySelector(`a[name="${CSS.escape(id)}"]`);
+}
+
+/** Scrolls `container` so that `element`'s top edge is at the top of the visible area. */
+export function scrollElementToTop(container: HTMLElement, element: Element) {
+    container.scrollTop += element.getBoundingClientRect().top - visibleTop(container);
+}
+
 /**
  * Scrolls `container` so that `position` is back at the top of the reader.
  * `legacyScrollTop` supports spots saved before anchors existed.

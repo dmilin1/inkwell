@@ -34,13 +34,17 @@ function EbookChunk({ sectionTitle, bookData }: EbookChunkProps) {
               className='flex-row bg-bg-secondary min-h-[8rem] rounded-2xl mt-10 cursor-pointer flex-1'
             >
               <div className='min-w-[8rem] relative center items-center'>
-                <div className='min-w-[5.6rem] min-h-[8rem] rounded-xl absolute bottom-5 bg-[size:100%_100%]' style={{
+                <div className='min-w-[5.6rem] min-h-[8rem] rounded-xl absolute bottom-5 bg-[size:100%_100%]' style={metadata.coverImgPath ? {
                   backgroundImage: `url('${metadata.coverImgPath}')`
-                }}/>
+                } : undefined}/>
               </div>
               <div className='grow pt-2 pb-5'>
                 <div className=''>{metadata.title}</div>
-                <div className='grow text-text-secondary'>By {metadata.author}</div>
+                {metadata.error ? (
+                  <div className='grow text-text-secondary'>Couldn't read this book. Press and hold to remove it.</div>
+                ) : (
+                  <div className='grow text-text-secondary'>{metadata.author ? `By ${metadata.author}` : ''}</div>
+                )}
                 {/* Next line must have "visible" to make line clamp work due to Safari bug: https://stackoverflow.com/a/61474324 */}
                 <div className='text-text-secondary text-sm line-clamp-2 visible'>{metadata.subjects?.join(', ')}</div>
               </div>

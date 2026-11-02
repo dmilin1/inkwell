@@ -4,11 +4,14 @@ import { Ebook } from "./Ebook";
 
 export class EbookLoader {
 
-    static new(filePath: string, base64?: string): Ebook {
-        if (filePath.endsWith('.epub')) {
-            return new Epub(filePath, base64);
-        } else {
-            throw 'Unsupported File Type';
+    static isSupported(filePath: string): boolean {
+        return /\.epub$/i.test(filePath);
+    }
+
+    static new(filePath: string, readFileData?: () => Promise<string | Blob>): Ebook {
+        if (EbookLoader.isSupported(filePath)) {
+            return new Epub(filePath, readFileData);
         }
+        throw new Error('Unsupported file type');
     }
 }

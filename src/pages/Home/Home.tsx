@@ -17,7 +17,9 @@ function Home() {
   const [intialLoadComplete, setInitialLoadComplete] = useState(componentHasLoadedBefore);
   const [search, setSearch] = useState<string>('');
 
-  StatusBar.set(StatusBarMode.Dark);
+  useEffect(() => {
+    StatusBar.set(StatusBarMode.Dark);
+  }, []);
 
   useEffect(() => {
     if (!libraryLoading) {
@@ -86,15 +88,16 @@ function Home() {
             <>
               <EbookRow
                 sectionTitle='Recently Opened'
-                bookData={[...ebooksMetadata].sort((a, b) =>
-                  b.stats.lastOpenedAt - a.stats.lastOpenedAt < 0 ? -1 : 1
-                ).slice(0, 10)}
+                bookData={ebooksMetadata
+                  .filter(metadata => metadata.stats.lastOpenedAt > 0)
+                  .sort((a, b) => b.stats.lastOpenedAt - a.stats.lastOpenedAt)
+                  .slice(0, 10)}
               />
               <EbookRow
                 sectionTitle='Recently Added'
-                bookData={[...ebooksMetadata].sort((a, b) => 
-                  b.stats.addedAt - a.stats.addedAt < 0 ? -1 : 1
-                ).slice(0, 10)}
+                bookData={[...ebooksMetadata]
+                  .sort((a, b) => b.stats.addedAt - a.stats.addedAt)
+                  .slice(0, 10)}
               />
               <EbookChunk
                 sectionTitle='All Books'

@@ -23,9 +23,6 @@ const config: CapacitorConfig = {
       initialViewportFitValueHint: 'cover',
     },
   },
-  ios: {
-    webContentsDebuggingEnabled: true
-  },
   loggingBehavior: 'none',
 };
 
