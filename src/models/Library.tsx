@@ -75,33 +75,41 @@ export default class Library {
     }
 
     private static async getBookFiles() {
+        let fileNames: string[];
         try {
             const dir = await Filesystem.readdir({
                 path: Library.PATH,
                 directory: Directory.Library,
             })
-            const fileNames = dir.files.map(file => file.name);
-            const files = await Promise.all(fileNames.map(async (fileName) => {
-                const base64 = (await Filesystem.readFile({
-                    path: `${Library.PATH}${fileName}`,
-                    directory: Directory.Library,
-                })).data;
-                return {
-                    fileName,
-                    base64,
-                }
-            }));
-            return files;
+            fileNames = dir.files.map(file => file.name);
         } catch (e) {
-            let message
-            if (e instanceof Error) message = e.message
-            if (
-                message === 'Folder does not exist.'
-                || message?.includes(`there is no such file`)
-            ) {
+            // The folder is only created when the first book is added.
+            if (isMissingFolderError(e)) {
                 return [];
             }
             throw e;
         }
+        return Promise.all(fileNames.map(async (fileName) => {
+            const base64 = (await Filesystem.readFile({
+                path: `${Library.PATH}${fileName}`,
+                directory: Directory.Library,
+            })).data;
+            return {
+                fileName,
+                base64,
+            }
+        }));
     }
+}
+
+/**
+ * Capacitor Filesystem reports a missing folder differently across versions
+ * and platforms: v5 on iOS says "Folder does not exist.", v8 uses code
+ * OS-PLUG-FILE-0008 ("'readdir' failed because file at '…' does not exist."),
+ * and errors passed through from Apple say "… there is no such file."
+ */
+function isMissingFolderError(e: unknown): boolean {
+    const { code, message } = (e ?? {}) as { code?: unknown, message?: unknown };
+    return code === 'OS-PLUG-FILE-0008'
+        || (typeof message === 'string' && /does not exist|no such file/i.test(message));
 }

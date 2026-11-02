@@ -31,12 +31,19 @@ export function LibraryProvider({ children }: React.PropsWithChildren) {
 
     const loadEbooks = async (loadOptions: LoadLibraryParams = {}) => {
         setLibraryLoading(true);
-        const ebooks = await Library.getBooks(loadOptions.reload);
-        const metadata = await Promise.all(
-            Object.values(ebooks).map(ebook => ebook.loadMetadata(loadOptions))
-        );
-        setEbooksMetadata(metadata);
-        setLibraryLoading(false);
+        try {
+            const ebooks = await Library.getBooks(loadOptions.reload);
+            const metadata = await Promise.all(
+                Object.values(ebooks).map(ebook => ebook.loadMetadata(loadOptions))
+            );
+            setEbooksMetadata(metadata);
+        } catch (e) {
+            console.error(e);
+            alert('Failed to load your library: ' + e);
+        } finally {
+            // Always finish loading: the splash screen stays up until this is false.
+            setLibraryLoading(false);
+        }
     }
 
     const promptToAddBook = async () => {
