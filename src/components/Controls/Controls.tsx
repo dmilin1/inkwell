@@ -13,9 +13,9 @@ interface StepperProps {
 
 /** A labelled −/value/+ control. */
 export function Stepper({ label, value, min, max, step, format, onChange }: StepperProps) {
-    // Avoid floating point drift (0.1 + 0.2) and keep within bounds.
-    const set = (next: number) => onChange(Math.min(max, Math.max(min, Math.round(next / step) * step)));
+    // Snap to the step without floating point noise (0.1 + 0.2), within bounds.
     const decimals = (String(step).split('.')[1] ?? '').length;
+    const set = (next: number) => onChange(Math.min(max, Math.max(min, +(Math.round(next / step) * step).toFixed(decimals))));
     const shown = format ? format(value) : value.toFixed(decimals);
 
     return (
@@ -89,5 +89,36 @@ export function Segmented<T extends string>({ label, ariaLabel, value, options, 
             <div className='text-[0.95rem] shrink-0'>{label}</div>
             {control}
         </div>
+    );
+}
+
+interface ToggleProps {
+    label: string,
+    description?: string,
+    checked: boolean,
+    onChange: (checked: boolean) => void,
+}
+
+/** A labelled on/off switch. */
+export function Toggle({ label, description, checked, onChange }: ToggleProps) {
+    return (
+        <button
+            type='button'
+            role='switch'
+            aria-checked={checked}
+            className='pressable flex flex-row items-center justify-between gap-4 min-h-[3rem] w-full text-left'
+            onClick={() => onChange(!checked)}
+        >
+            <span className='flex flex-col'>
+                <span className='text-[0.95rem]'>{label}</span>
+                {description && <span className='text-xs text-text-secondary'>{description}</span>}
+            </span>
+            <span className={`relative shrink-0 w-12 h-7 rounded-full transition-colors ${checked ? 'bg-accent' : 'bg-bg-tertiary'}`}>
+                <span
+                    className='absolute top-0.5 left-0.5 w-6 h-6 rounded-full bg-text-primary shadow transition-transform'
+                    style={{ transform: checked ? 'translateX(1.25rem)' : 'none' }}
+                />
+            </span>
+        </button>
     );
 }

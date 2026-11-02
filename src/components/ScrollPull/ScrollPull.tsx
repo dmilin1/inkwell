@@ -1,6 +1,8 @@
-import { useRef, useState } from "react"
+import { useContext, useRef, useState } from "react"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowDown, faArrowUp } from "@fortawesome/free-solid-svg-icons"
+import { Haptics, ImpactStyle } from "@capacitor/haptics";
+import { SettingsContext } from "../../contexts/SettingsContext";
 
 interface Coordinate {
     x: number,
@@ -14,6 +16,55 @@ interface ScrollPullProps {
     atEnd?: boolean;
 }
 
+/** How far (after damping) the page must be pulled to change chapter. */
+const DRAG_ACTION_LIMIT = 100;
+
+interface PullIndicatorProps {
+    edge: 'top' | 'bottom',
+    progress: number,
+    label: string,
+}
+
+/**
+ * Shown while the page is pulled past its edge: a ring that fills up to the
+ * point where letting go changes chapter. Pinned to the screen edge so it's
+ * visible however far the page has stretched.
+ */
+function PullIndicator({ edge, progress, label }: PullIndicatorProps) {
+    const { settings } = useContext(SettingsContext);
+    const radius = 9;
+    const circumference = 2 * Math.PI * radius;
+    const ready = progress >= 1;
+    return (
+        <div
+            className='fixed left-1/2 z-[25] flex flex-row items-center gap-2.5 h-10 pl-2 pr-4 rounded-full font-sans text-sm whitespace-nowrap pointer-events-none transition-transform duration-150'
+            style={{
+                [edge]: edge === 'top' ? 'calc(var(--sat) + 0.75rem)' : 'calc(var(--sab) + 1rem)',
+                transform: `translateX(-50%) scale(${ready ? 1.04 : 1})`,
+                backgroundColor: settings.backgroundColor,
+                color: settings.fontColor,
+                boxShadow: '0 6px 20px rgba(0,0,0,0.25)',
+            }}
+            role='status'
+        >
+            {/* Outline in the text color (color-mix() would need iOS 16.2). */}
+            <span className='absolute inset-0 rounded-full opacity-25' style={{ boxShadow: 'inset 0 0 0 1px currentColor' }} />
+            <span className='relative w-6 h-6 flex items-center justify-center'>
+                <svg className='absolute inset-0 -rotate-90' viewBox='0 0 24 24' aria-hidden='true'>
+                    <circle cx='12' cy='12' r={radius} fill='none' stroke='currentColor' strokeOpacity='0.2' strokeWidth='2' />
+                    <circle
+                        cx='12' cy='12' r={radius} fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round'
+                        strokeDasharray={circumference}
+                        strokeDashoffset={circumference * (1 - Math.min(1, progress))}
+                    />
+                </svg>
+                <FontAwesomeIcon icon={edge === 'top' ? faArrowDown : faArrowUp} className='text-[0.6rem]' />
+            </span>
+            <span>{label}</span>
+        </div>
+    );
+}
+
 export function ScrollPull({ children, pulledUp, pulledDown, atBeginning, atEnd }: React.PropsWithChildren<ScrollPullProps>) {
     const scrollContainer = useRef<HTMLInputElement>(null);
     const topSection = useRef<HTMLInputElement>(null);
@@ -23,7 +74,19 @@ export function ScrollPull({ children, pulledUp, pulledDown, atBeginning, atEnd 
     const [topMargin, setTopMargin] = useState(0);
     const [bottomMargin, setBottomMargin] = useState(0);
 
-    const dragActionLimit = 100;
+    // A light tap when the pull crosses the point of no return (either way).
+    const thresholdReached = useRef(false);
+    const pull = (margin: number) => {
+        const reached = margin > DRAG_ACTION_LIMIT;
+        if (reached !== thresholdReached.current) {
+            thresholdReached.current = reached;
+            Haptics.impact({ style: ImpactStyle.Light }).catch(() => {});
+        }
+        return margin;
+    };
+
+    const topProgress = topMargin / DRAG_ACTION_LIMIT;
+    const bottomProgress = bottomMargin / DRAG_ACTION_LIMIT;
 
     return (
         <div
@@ -45,12 +108,13 @@ export function ScrollPull({ children, pulledUp, pulledDown, atBeginning, atEnd 
                 }
             }}
             onTouchEnd={() => {
-                if (topMargin > dragActionLimit) {
+                if (topMargin > DRAG_ACTION_LIMIT) {
                     pulledUp?.();
                 }
-                if (bottomMargin > dragActionLimit) {
+                if (bottomMargin > DRAG_ACTION_LIMIT) {
                     pulledDown?.();
                 }
+                thresholdReached.current = false;
                 setTopDragStartPos(null);
                 setTopMargin(0);
                 setBottomDragStartPos(null);
@@ -58,41 +122,35 @@ export function ScrollPull({ children, pulledUp, pulledDown, atBeginning, atEnd 
             }}
             onTouchMove={e => {
                 const y = e.targetTouches.item(0).clientY;
-                if (topDragStartPos && topSection.current) {
+                if (topDragStartPos && topSection.current && !atBeginning) {
                     const delta = y - (topDragStartPos?.y ?? 0);
                     if (delta > 0) {
-                        setTopMargin(delta / 2);
+                        setTopMargin(pull(delta / 2));
                     } else {
                         setTopDragStartPos(null);
                     }
                 }
-                if (bottomDragStartPos && bottomSection.current) {
+                if (bottomDragStartPos && bottomSection.current && !atEnd) {
                     const delta = (bottomDragStartPos?.y ?? 0) - y;
                     if (delta > 0) {
-                        setBottomMargin(delta / 2);
+                        setBottomMargin(pull(delta / 2));
                     } else {
                         setBottomDragStartPos(null);
                     }
                 }
             }}
         >
+            {/* Space above the chapter that's revealed while pulling down. */}
             <div
                 id='top-section'
                 ref={topSection}
-                className='flex flex-row z-20 items-center justify-center gap-2 h-12 font-sans text-sm opacity-60'
+                className='h-12'
                 style={{
                     marginTop: `calc(-3rem + ${topMargin}px - var(--sat))`,
                     marginBottom: `var(--sat)`,
                     transition: !topMargin ? 'margin-top 0.25s ease-out' : undefined,
                 }}
-            >
-                { !atBeginning && 
-                    <>
-                        <FontAwesomeIcon icon={faArrowDown} className='text-xs' />
-                        <span>{topMargin < dragActionLimit ? 'Pull down for previous chapter' : 'Release for previous chapter'}</span>
-                    </>
-                }
-            </div>
+            />
             {children}
             <div
                 id='bottom-section'
@@ -105,13 +163,12 @@ export function ScrollPull({ children, pulledUp, pulledDown, atBeginning, atEnd 
             >
                 { atEnd ? (
                     <span className='opacity-50'>End of book</span>
-                ) : bottomMargin >= dragActionLimit ? (
-                    <span className='opacity-60'>Release for next chapter</span>
                 ) : (
                     <button
                         type='button'
                         className='pressable flex flex-row items-center gap-2 h-10 px-5 rounded-full opacity-70'
-                        style={{ boxShadow: 'inset 0 0 0 1px currentColor' }}
+                        // The pull indicator takes over while pulling.
+                        style={{ boxShadow: 'inset 0 0 0 1px currentColor', visibility: bottomMargin > 4 ? 'hidden' : undefined }}
                         onClick={e => {
                             e.stopPropagation();
                             pulledDown?.();
@@ -122,6 +179,20 @@ export function ScrollPull({ children, pulledUp, pulledDown, atBeginning, atEnd 
                     </button>
                 )}
             </div>
+            {topMargin > 4 &&
+                <PullIndicator
+                    edge='top'
+                    progress={topProgress}
+                    label={topProgress >= 1 ? 'Release for previous chapter' : 'Keep pulling for previous chapter'}
+                />
+            }
+            {bottomMargin > 4 &&
+                <PullIndicator
+                    edge='bottom'
+                    progress={bottomProgress}
+                    label={bottomProgress >= 1 ? 'Release for next chapter' : 'Keep pulling for next chapter'}
+                />
+            }
         </div>
     )
 }

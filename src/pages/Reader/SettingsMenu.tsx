@@ -7,9 +7,9 @@ import { ChapterContext } from '../../contexts/ChapterContext';
 import { StatusBarMode } from '../../utils/StatusBar';
 import { FaderTransition } from '../../components/FaderTransition/FaderTransition';
 import { useBackHandler } from '../../utils/BackButton';
-import { Segmented, Stepper } from '../../components/Controls/Controls';
+import { Segmented, Stepper, Toggle } from '../../components/Controls/Controls';
 import { READER_FONTS, fontStack } from '../../resources/fonts/fonts';
-import { READER_THEMES, matchingTheme } from '../../utils/Themes';
+import { READER_THEMES, isLightColor, matchingTheme } from '../../utils/Themes';
 
 type Tab = 'text' | 'page' | 'theme';
 
@@ -18,8 +18,8 @@ const FONT_WEIGHTS: { [weight: number]: string } = {
   600: 'Semibold', 700: 'Bold', 800: 'Extra Bold', 900: 'Black',
 };
 
-/** Spacing settings are stored as steps from "normal" (1). */
-const formatOffset = (value: number) => value === 1 ? 'Normal' : `${value > 1 ? '+' : '−'}${Math.abs(value - 1)}`;
+/** Word and letter spacing are stored relative to "normal" (1), as in earlier versions. */
+const formatSpacing = (value: number) => value === 1 ? 'Normal' : value.toFixed(1);
 
 export default function SettingsMenu() {
   const { settings, changeSettings, isSettingsOpen, setIsSettingsOpen } = useContext(SettingsContext);
@@ -35,13 +35,13 @@ export default function SettingsMenu() {
   const percent = Math.round((metadata?.progress.percentComplete ?? 0) * 100);
 
   return (
-    <div className='w-full h-full absolute z-30 pointer-events-none select-none'>
+    <div className='w-full h-full absolute top-0 left-0 z-30 pointer-events-none select-none'>
       <FaderTransition shouldShow={isSettingsOpen} speed={200} style={{
         width: '100%',
         height: '100%',
       }}>
         <div className='w-full h-full justify-between'>
-          <div className='pointer-events-auto bg-bg-primary padding-safe-area-top shadow-[0_1px_0_rgba(244,241,234,0.08)]'>
+          <div className='pointer-events-auto bg-bg-primary padding-safe-area-top padding-safe-area-x shadow-[0_1px_0_rgba(244,241,234,0.08)]'>
             <div className='flex-row items-center h-14 px-1'>
               <button
                 type='button'
@@ -58,7 +58,8 @@ export default function SettingsMenu() {
                 <div className='font-display text-[1.05rem] font-semibold truncate max-w-full'>{metadata?.title}</div>
                 <div className='flex-row max-w-full text-xs text-text-secondary whitespace-nowrap'>
                   {chapterTitle && <span className='truncate'>{chapterTitle}</span>}
-                  <span className='shrink-0 tabular-nums'>{chapterTitle ? '  ·  ' : ''}{percent}%</span>
+                  {chapterTitle && <span className='shrink-0 mx-1.5' aria-hidden='true'>·</span>}
+                  <span className='shrink-0 tabular-nums'>{percent}%</span>
                 </div>
               </div>
               <button
@@ -75,7 +76,7 @@ export default function SettingsMenu() {
             </div>
           </div>
 
-          <div className='pointer-events-auto w-full max-w-xl self-center bg-bg-primary rounded-t-2xl padding-safe-area-bottom shadow-[0_-1px_0_rgba(244,241,234,0.08),0_-12px_32px_rgba(0,0,0,0.35)]'>
+          <div className='pointer-events-auto w-full max-w-xl self-center bg-bg-primary rounded-t-2xl padding-safe-area-bottom padding-safe-area-x shadow-[0_-1px_0_rgba(244,241,234,0.08),0_-12px_32px_rgba(0,0,0,0.35)]'>
             <div className='px-4 pt-4 pb-2'>
               <Segmented<Tab>
                 value={tab}
@@ -156,8 +157,8 @@ export default function SettingsMenu() {
                 />
                 <Stepper label='Side margins' value={settings.horizontalMargins} min={0} max={96} step={4} onChange={set('horizontalMargins')} />
                 <Stepper label='Top & bottom margins' value={settings.verticalMargins} min={0} max={96} step={4} onChange={set('verticalMargins')} />
-                <Stepper label='Word spacing' value={settings.wordSpacing} min={0} max={9} step={1} format={formatOffset} onChange={set('wordSpacing')} />
-                <Stepper label='Letter spacing' value={settings.letterSpacing} min={0} max={9} step={1} format={formatOffset} onChange={set('letterSpacing')} />
+                <Stepper label='Word spacing' value={settings.wordSpacing} min={0} max={5} step={0.1} format={formatSpacing} onChange={set('wordSpacing')} />
+                <Stepper label='Letter spacing' value={settings.letterSpacing} min={0} max={5} step={0.1} format={formatSpacing} onChange={set('letterSpacing')} />
                 <Segmented
                   label='Status bar'
                   value={settings.statusBar === StatusBarMode.Hidden ? 'hide' : 'show'}
@@ -240,6 +241,14 @@ function ThemeSettings() {
           );
         })}
       </div>
+      <Toggle
+        label='Invert light images'
+        description={isLightColor(settings.backgroundColor)
+          ? 'Applies with dark backgrounds'
+          : 'Ornaments and scans on white pages'}
+        checked={settings.invertImages}
+        onChange={invertImages => changeSettings({ invertImages })}
+      />
       <div className='eyebrow text-text-secondary pt-3'>Custom</div>
       {colorInput('Text', 'fontColor')}
       {colorInput('Background', 'backgroundColor')}

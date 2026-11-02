@@ -74,6 +74,16 @@ div {
   padding-top: var(--sat);
 }
 
+/*
+ * Side insets (e.g. a vertical status bar / Dynamic Island when the device is
+ * sideways). Needed on overlays positioned against the viewport; content in
+ * #root already gets them from #root's padding.
+ */
+.padding-safe-area-x {
+  padding-left: var(--sal);
+  padding-right: var(--sar);
+}
+
 .padding-safe-area-bottom {
   padding-bottom: var(--sab);
 }

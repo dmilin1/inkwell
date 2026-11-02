@@ -21,6 +21,8 @@ export type Settings = {
 
     fontColor: string,
     backgroundColor: string,
+    /** Dark themes: invert light line-art images (ornaments, scans) so they don't glare. */
+    invertImages: boolean,
 }
 
 /** Defaults for people who haven't changed anything (saved settings are kept as they are). */
@@ -42,6 +44,7 @@ const defaultSettings: Settings = {
 
     fontColor: '#d4d0c7',
     backgroundColor: '#15161c',
+    invertImages: true,
 }
 
 

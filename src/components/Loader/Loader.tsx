@@ -8,7 +8,7 @@ export function Loader() {
 
     return (
         <div
-            className='w-screen h-screen pointer-events-none absolute top-0 z-50 items-center justify-center'
+            className='w-screen h-screen pointer-events-none absolute top-0 left-0 z-50 items-center justify-center'
             style={{
                 backgroundColor: settings.backgroundColor,
                 color: settings.fontColor,

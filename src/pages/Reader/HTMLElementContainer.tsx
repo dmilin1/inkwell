@@ -3,6 +3,7 @@ import { SettingsContext } from "../../contexts/SettingsContext";
 import { ChapterContext } from "../../contexts/ChapterContext";
 import { StatusBar, StatusBarMode } from "../../utils/StatusBar";
 import { isLightColor } from "../../utils/Themes";
+import { updateImageInversion } from "../../utils/ImageInversion";
 import { fontStack } from "../../resources/fonts/fonts";
 import { ScrollPull } from "../../components/ScrollPull/ScrollPull";
 import { useDebounce } from "../../utils/Debounce";
@@ -73,6 +74,7 @@ export function HTMLElementContainer() {
   const backgroundStyles: React.CSSProperties = {
     position: 'absolute',
     top: 0,
+    left: 0,
     width: '100vw',
     height: '100vh',
     backgroundColor: backgroundColor,
@@ -175,6 +177,7 @@ export function HTMLElementContainer() {
         Object.assign(elem.style, styles)
       );
     }
+    updateImageInversion(ref, settings.invertImages && !isLightColor(backgroundColor));
     /**
      * This next line fixes a bug on safari where the parent scroll container
      * will become unscrollable because the browser thinks the content is still
@@ -398,22 +401,53 @@ export function HTMLElementContainer() {
     }, 100)
   }
 
+  /**
+   * The scroll bar is drawn by the app: iOS WebKit always auto-hides native
+   * scroll bars, whatever the CSS says.
+   */
+  const scrollbarGeometry = () => {
+    const container = outerContainer.current;
+    if (!container) {
+      return undefined;
+    }
+    const bounds = container.getBoundingClientRect();
+    const trackTop = bounds.top + (parseFloat(getComputedStyle(container).paddingTop) || 0);
+    const trackHeight = bounds.bottom - trackTop;
+    const maxScroll = container.scrollHeight - container.clientHeight;
+    const thumbHeight = Math.min(trackHeight, Math.max(40, trackHeight * container.clientHeight / container.scrollHeight));
+    return { container, trackTop, trackHeight, maxScroll, thumbHeight };
+  };
+
   const alignProgressIndicator = () => {
-    const indicator = document.querySelector('#progress-indicator') as HTMLElement|null;
-    const container = document.querySelector('#reader-container') as HTMLElement|null;
-    const contents = document.querySelector('#reader-contents-container') as HTMLElement|null;
-    if (!indicator || !container || !contents) return;
-    const containerBounds = container.getBoundingClientRect();
-    const contentsBounds = contents.getBoundingClientRect();
-    const relativeSize = containerBounds.height / contentsBounds.height;
-    indicator.style.opacity = '50%';
-    indicator.style.backgroundColor = settings.fontColor;
-    indicator.style.height = `${relativeSize * 100}%`;
-    indicator.style.top = `${(container.scrollTop / contentsBounds.height) * (containerBounds.height - marginBottom) + containerBounds.top}px`;
+    const indicator = document.getElementById('progress-indicator');
+    const geometry = scrollbarGeometry();
+    if (!indicator || !geometry) {
+      return;
+    }
+    const { container, trackTop, trackHeight, maxScroll, thumbHeight } = geometry;
+    const ratio = maxScroll > 0 ? container.scrollTop / maxScroll : 0;
+    indicator.style.top = `${trackTop + ratio * (trackHeight - thumbHeight)}px`;
+    indicator.style.height = `${thumbHeight}px`;
+    indicator.style.opacity = '1';
     clearTimeout(progressIndicatorOpacityTimout);
-    progressIndicatorOpacityTimout = setTimeout(() => {
-      indicator.style.opacity = '0%';
-    }, 1000);
+    if (settings.scrollBar === 'untouchable') {
+      progressIndicatorOpacityTimout = setTimeout(() => {
+        indicator.style.opacity = '0';
+      }, 1000);
+    }
+  }
+
+  /** "Show" mode: the scroll bar's thumb can be dragged. */
+  const scrollbarDrag = useRef<{ grabOffset: number } | null>(null);
+  const dragScrollbar = (clientY: number) => {
+    const geometry = scrollbarGeometry();
+    if (!geometry || !scrollbarDrag.current) {
+      return;
+    }
+    const { container, trackTop, trackHeight, maxScroll, thumbHeight } = geometry;
+    const travel = trackHeight - thumbHeight;
+    const ratio = travel > 0 ? (clientY - scrollbarDrag.current.grabOffset - trackTop) / travel : 0;
+    container.scrollTop = Math.min(1, Math.max(0, ratio)) * maxScroll;
   }
 
   useEffect(() => {
@@ -511,19 +545,38 @@ export function HTMLElementContainer() {
 
   return useMemo(() =>
     <>
-      {settings.scrollBar === 'untouchable' &&
+      {settings.readingMode === 'scrolling' && settings.scrollBar !== 'hidden' &&
         <div
           id='progress-indicator'
-          className='opacity-50 z-20 w-[3px] absolute right-0 rounded'
+          role='scrollbar'
+          aria-controls='reader-container'
+          aria-orientation='vertical'
+          className='absolute z-20 w-7 flex justify-end'
           style={{
+            right: 'var(--sar)',
             transition: 'opacity 0.5s',
+            opacity: 0,
+            pointerEvents: settings.scrollBar === 'visible' ? 'auto' : 'none',
+            touchAction: 'none',
           }}
-        />
+          onPointerDown={e => {
+            e.preventDefault();
+            e.stopPropagation();
+            scrollbarDrag.current = { grabOffset: e.clientY - e.currentTarget.getBoundingClientRect().top };
+            e.currentTarget.setPointerCapture(e.pointerId);
+          }}
+          onPointerMove={e => dragScrollbar(e.clientY)}
+          onPointerUp={() => { scrollbarDrag.current = null; }}
+          onPointerCancel={() => { scrollbarDrag.current = null; }}
+          onClick={e => e.stopPropagation()}
+        >
+          <div className='w-1 h-full mr-1 rounded-full opacity-40' style={{ backgroundColor: fontColor }} />
+        </div>
       }
       <div
         id='reader-container'
         ref={outerContainer}
-        className={`overscroll-none ${settings.scrollBar !== 'visible' ? 'scrollbar-hide' : ''}`}
+        className='overscroll-none scrollbar-hide'
         style={outerContainerStyles as StyleHTMLAttributes<any>}
         onTouchStart={e => {
           textIsHighlighted.current = !!document.getSelection()?.toString();

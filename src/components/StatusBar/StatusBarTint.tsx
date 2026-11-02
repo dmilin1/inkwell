@@ -17,7 +17,7 @@ export function StatusBarTint() {
     const bg = settings.backgroundColor;
     return (
         <div
-            className='absolute top-0 padding-safe-area-top w-full z-[100] pointer-events-none'
+            className='absolute top-0 left-0 padding-safe-area-top w-full z-[100] pointer-events-none'
             style={{
                 background: `linear-gradient(${bg}e6 70%, ${bg}00)`
             }}

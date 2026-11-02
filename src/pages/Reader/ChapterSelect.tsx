@@ -22,7 +22,7 @@ export default function ChapterSelect() {
 
   return (
     <div
-      className='w-full h-full absolute z-40 select-none bg-bg-primary'
+      className='w-full h-full absolute top-0 left-0 z-40 select-none bg-bg-primary padding-safe-area-x'
       style={{ display: isChapterSelectOpen ? 'flex': 'none' }}
     >
       <div className='padding-safe-area-top shadow-[0_1px_0_rgba(244,241,234,0.08)]'>
