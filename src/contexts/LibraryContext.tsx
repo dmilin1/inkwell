@@ -63,13 +63,14 @@ export function LibraryProvider({ children }: React.PropsWithChildren) {
             alert(`Couldn't add the book: ${errorMessage(e)}`);
             return;
         }
+        // It appears at the top of the library (sorted by recent activity).
         await loadEbooks({ reload: true });
-        alert('Added book to library!')
     }
 
     const promptToDeleteBook = async (filePath: string) => {
         try {
-            const didDelete = await Library.promptToDeleteBook(filePath)
+            const title = ebooksMetadata.find(metadata => metadata.filePath === filePath)?.title;
+            const didDelete = await Library.promptToDeleteBook(filePath, title)
             if (didDelete) {
                 await loadEbooks({ reload: true });
             }

@@ -23,24 +23,25 @@ export type Settings = {
     backgroundColor: string,
 }
 
+/** Defaults for people who haven't changed anything (saved settings are kept as they are). */
 const defaultSettings: Settings = {
-    fontFamily: 'Roboto',
+    fontFamily: 'Literata',
     fontSize: 18,
     fontWeight: '400',
 
     readingMode: 'scrolling',
-    lineSpacing: 1.25,
+    lineSpacing: 1.5,
     wordSpacing: 1,
     letterSpacing: 1,
-    paragraphSpacing: 10,
-    paragraphIndentation: 1,
-    verticalMargins: 0,
-    horizontalMargins: 10,
+    paragraphSpacing: 8,
+    paragraphIndentation: 1.5,
+    verticalMargins: 8,
+    horizontalMargins: 24,
     statusBar: StatusBarMode.Dark,
-    scrollBar: 'visible',
+    scrollBar: 'untouchable',
 
-    fontColor: '#ffffff',
-    backgroundColor: '#000000',
+    fontColor: '#d4d0c7',
+    backgroundColor: '#15161c',
 }
 
 

@@ -229,6 +229,81 @@ function anchorDelta(container: HTMLElement, contents: HTMLElement, anchor: Read
     return rect.top - visibleTop(container);
 }
 
+/**
+ * For paginated reading: where whole lines start and stop on the current page,
+ * in viewport coordinates.
+ * - `firstLineTop`: top of the first line that's fully visible.
+ * - `cutLineTop`: top of the line cut off by the bottom edge, if any. Elements
+ *   taller than the page (big images) never count as cut, so they're shown
+ *   rather than hidden.
+ * - `nextLineTop`: when nothing is cut, the top of the first content below the
+ *   page (where the next page should start).
+ */
+export function pageLineBounds(container: HTMLElement, contents: HTMLElement): { firstLineTop?: number, cutLineTop?: number, nextLineTop?: number } {
+    const rect = container.getBoundingClientRect();
+    const top = visibleTop(container);
+    const bottom = rect.bottom - (parseFloat(getComputedStyle(container).paddingBottom) || 0);
+
+    let firstLineTop: number | undefined;
+    const anchor = findAnchor(contents, top);
+    if (anchor) {
+        const delta = anchorDelta(container, contents, anchor);
+        firstLineTop = delta === undefined ? undefined : top + delta;
+    }
+
+    const nodes = getAnchorableNodes(contents);
+    const bottomOf = (i: number) => {
+        for (let j = i; j < nodes.length; j++) {
+            const r = nodeRect(nodes[j]);
+            if (!isEmptyRect(r)) {
+                return r.bottom;
+            }
+        }
+        return Number.POSITIVE_INFINITY;
+    };
+    let cutLineTop: number | undefined;
+    let nextLineTop: number | undefined;
+    for (let i = lowerBound(0, nodes.length, k => bottomOf(k) > bottom + EPSILON); i < nodes.length; i++) {
+        const node = nodes[i];
+        const r = nodeRect(node);
+        if (isEmptyRect(r)) {
+            continue;
+        }
+        if (r.top >= bottom - EPSILON) {
+            // The next content starts below the page; nothing is cut.
+            if (node.nodeType === Node.TEXT_NODE) {
+                const text = node as Text;
+                const first = lowerBound(0, text.length, k => !isEmptyRect(charRect(text, k)));
+                nextLineTop = first < text.length ? charRect(text, first).top : r.top;
+            } else {
+                nextLineTop = r.top;
+            }
+            break;
+        }
+        if (node.nodeType !== Node.TEXT_NODE) {
+            if (r.height < (bottom - top) * 0.9) {
+                cutLineTop = r.top;
+            }
+            break;
+        }
+        const text = node as Text;
+        const offset = lowerBound(0, text.length, k => {
+            const c = charRect(text, k);
+            return !isEmptyRect(c) && c.bottom > bottom + EPSILON;
+        });
+        if (offset < text.length) {
+            const c = charRect(text, offset);
+            if (c.top < bottom - EPSILON) {
+                cutLineTop = c.top;
+            } else {
+                nextLineTop = c.top;
+            }
+        }
+        break;
+    }
+    return { firstLineTop, cutLineTop, nextLineTop };
+}
+
 /** Finds an element in the chapter by its id (e.g. the target of a footnote link). */
 export function findAnchorElement(contents: HTMLElement, id: string): Element | null {
     return contents.querySelector(`[id="${CSS.escape(id)}"]`)

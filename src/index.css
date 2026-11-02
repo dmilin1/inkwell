@@ -3,12 +3,14 @@
 @tailwind utilities;
 
 :root {
-  font-family: Inter, system-ui, Avenir, Helvetica, Arial, sans-serif;
+  /* App chrome uses the platform's UI font; book text has its own settings. */
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, 'Segoe UI', Roboto, sans-serif;
   line-height: 1.5;
   font-weight: 400;
 
-  color-scheme: light dark;
-  color: #ffffff;
+  color-scheme: dark;
+  color: #f4f1ea;
+  -webkit-tap-highlight-color: transparent;
 
   font-synthesis: none;
   text-rendering: optimizeLegibility;
@@ -30,6 +32,23 @@
 
 html > body {
   margin: 0;
+}
+
+/* Tappable elements dim while pressed (there's no hover on touch screens). */
+.pressable {
+  cursor: pointer;
+  transition: opacity 120ms ease-out, background-color 120ms ease-out;
+}
+.pressable:active {
+  opacity: 0.55;
+}
+
+/* Small uppercase section label. */
+.eyebrow {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
 }
 
 html > body > #root {

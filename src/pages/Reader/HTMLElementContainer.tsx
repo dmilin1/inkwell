@@ -1,12 +1,14 @@
 import { StyleHTMLAttributes, useContext, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { SettingsContext } from "../../contexts/SettingsContext";
 import { ChapterContext } from "../../contexts/ChapterContext";
-import { StatusBar } from "../../utils/StatusBar";
+import { StatusBar, StatusBarMode } from "../../utils/StatusBar";
+import { isLightColor } from "../../utils/Themes";
+import { fontStack } from "../../resources/fonts/fonts";
 import { ScrollPull } from "../../components/ScrollPull/ScrollPull";
 import { useDebounce } from "../../utils/Debounce";
 import getSafeArea from "../../utils/SafeArea";
 import {
-  ReadingPosition, capturePosition, findAnchorElement, resetPositionCache, restorePosition, scrollElementToTop,
+  ReadingPosition, capturePosition, findAnchorElement, pageLineBounds, resetPositionCache, restorePosition, scrollElementToTop,
 } from "../../utils/ReadingPosition";
 
 type TrackedPosition = {
@@ -23,7 +25,10 @@ export function HTMLElementContainer() {
     html, chapterIndex, numberOfChapters, takeChapterTarget,
     setChapterIndex, saveSpot, loadSpot
   } = useContext(ChapterContext);
-  const { settings, setIsSettingsOpen } = useContext(SettingsContext);
+  const { settings, isSettingsOpen, setIsSettingsOpen } = useContext(SettingsContext);
+  // Read by the memoized tap handler.
+  const settingsOpen = useRef(isSettingsOpen);
+  settingsOpen.current = isSettingsOpen;
 
   const outerContainer = useRef<HTMLDivElement>(null);
   const htmlContainer = useRef<HTMLDivElement>();
@@ -57,9 +62,13 @@ export function HTMLElementContainer() {
   const marginBottom = verticalMarginsSetting + (settings.readingMode === 'paginated' ? safeArea.bottom : 0);
   const verticalMarginTotal = marginTop + marginBottom;
 
+  // Status bar text follows the page color so it's always readable.
+  const statusBarMode = statusBar === StatusBarMode.Hidden
+    ? StatusBarMode.Hidden
+    : isLightColor(backgroundColor) ? StatusBarMode.Light : StatusBarMode.Dark;
   useEffect(() => {
-    StatusBar.set(statusBar);
-  }, [statusBar]);
+    StatusBar.set(statusBarMode);
+  }, [statusBarMode]);
 
   const backgroundStyles: React.CSSProperties = {
     position: 'absolute',
@@ -85,7 +94,8 @@ export function HTMLElementContainer() {
     userSelect: 'text',
     zIndex: 10,
     color: fontColor,
-    fontFamily,
+    fontFamily: fontStack(fontFamily),
+    lineHeight: lineSpacing,
     overflow: settings.readingMode === 'scrolling' ? 'scroll' : 'hidden',
     // We keep the reading position ourselves (see realign); browser scroll
     // anchoring (Chromium/Android only) would fight it.
@@ -104,6 +114,11 @@ export function HTMLElementContainer() {
      * a bug with webkit rendering.
      */
     minHeight: '105vh',
+    // Keep lines to a comfortable length on wide screens (e.g. an unfolded phone).
+    width: '100%',
+    maxWidth: '34em',
+    marginLeft: 'auto',
+    marginRight: 'auto',
   };
 
   const elementStyles = {
@@ -124,8 +139,12 @@ export function HTMLElementContainer() {
     'image, img': {
       'margin': 'auto',
     },
+    'img': {
+      'max-width': '100%',
+      'height': 'auto',
+    },
     'p': {
-      'text-indent': `${paragraphIndentation}rem`,
+      'text-indent': `${paragraphIndentation}em`,
       'line-height': lineSpacing,
       'margin-bottom': `${paragraphSpacing}px`,
       'hyphens': 'auto',
@@ -209,6 +228,8 @@ export function HTMLElementContainer() {
       width: ref.clientWidth,
     };
     isRestoring.current = false;
+    pageHistory.current = [];
+    updatePageMask();
     alignProgressIndicator();
     saveSpot(position.current.value);
   };
@@ -218,6 +239,92 @@ export function HTMLElementContainer() {
    * (fold/unfold, rotation, window resize) or the text reflowed for another
    * reason (fonts or images finishing loading). Scroll back to the tracked spot.
    */
+  const pageMaskTop = useRef<HTMLDivElement>(null);
+  const pageMaskBottom = useRef<HTMLDivElement>(null);
+  const pageMaskStyles: React.CSSProperties = {
+    position: 'fixed',
+    left: 0,
+    width: '100vw',
+    zIndex: 15,
+    pointerEvents: 'none',
+  };
+  /** scrollTops of the pages before this one, so "previous page" returns exactly. */
+  const pageHistory = useRef<number[]>([]);
+
+  /** Paginated mode: cover partial lines at the top and bottom edges of the page. */
+  const updatePageMask = () => {
+    const top = pageMaskTop.current;
+    const bottom = pageMaskBottom.current;
+    const container = outerContainer.current;
+    const contents = htmlContainer.current;
+    if (!top || !bottom) {
+      return;
+    }
+    top.style.display = 'none';
+    bottom.style.display = 'none';
+    if (settings.readingMode !== 'paginated' || !container || !contents || isRestoring.current) {
+      return;
+    }
+    const rect = container.getBoundingClientRect();
+    const { firstLineTop, cutLineTop } = pageLineBounds(container, contents);
+    if (firstLineTop !== undefined && firstLineTop > rect.top + 1 && firstLineTop < rect.bottom) {
+      top.style.display = 'block';
+      top.style.top = `${rect.top}px`;
+      top.style.height = `${firstLineTop - rect.top}px`;
+    }
+    if (cutLineTop !== undefined && cutLineTop > rect.top) {
+      bottom.style.display = 'block';
+      bottom.style.top = `${cutLineTop}px`;
+      bottom.style.height = `${rect.bottom - cutLineTop}px`;
+    }
+  };
+  const updatePageMaskRef = useRef(updatePageMask);
+  updatePageMaskRef.current = updatePageMask;
+
+  /** Paginated mode: the next page starts with the line that was cut off. */
+  const turnPage = (direction: 1 | -1) => {
+    const container = outerContainer.current;
+    const contents = htmlContainer.current;
+    if (!container || !contents) {
+      return;
+    }
+    const rect = container.getBoundingClientRect();
+    const maxScroll = container.scrollHeight - container.clientHeight;
+    if (direction === 1) {
+      if (container.scrollTop >= maxScroll - 1) {
+        changeChapter((chapterIndex ?? 0) + 1);
+        return;
+      }
+      // Start the next page at the line that was cut off, or at the next line
+      // below the page when nothing was cut.
+      const { cutLineTop, nextLineTop } = pageLineBounds(container, contents);
+      const nextPageTop = cutLineTop ?? nextLineTop;
+      const minimumStep = fontSize * lineSpacing * 2;
+      const step = nextPageTop !== undefined && nextPageTop - rect.top > minimumStep
+        ? nextPageTop - rect.top
+        : rect.height;
+      pageHistory.current.push(container.scrollTop);
+      container.scrollTop += step;
+    } else {
+      if (container.scrollTop <= 1) {
+        changeChapter((chapterIndex ?? 0) - 1);
+        return;
+      }
+      const previous = pageHistory.current.pop();
+      if (previous !== undefined && previous < container.scrollTop) {
+        container.scrollTop = previous;
+      } else {
+        pageHistory.current = [];
+        container.scrollTop = Math.max(0, container.scrollTop - rect.height);
+        if (container.scrollTop > 0) {
+          // Start the page on a whole line.
+          restorePosition(container, contents, capturePosition(container, contents));
+        }
+      }
+    }
+    updatePageMask();
+  };
+
   const realign = () => {
     const container = outerContainer.current;
     const contents = htmlContainer.current;
@@ -226,14 +333,17 @@ export function HTMLElementContainer() {
     }
     position.current.width = contents.clientWidth;
     if (!position.current.value || position.current.chapterIndex !== chapterIndex) {
+      updatePageMask();
       return;
     }
     const previousScrollTop = container.scrollTop;
     programmaticScrollTop.current = restorePosition(container, contents, position.current.value);
     if (programmaticScrollTop.current !== previousScrollTop) {
+      pageHistory.current = [];
       alignProgressIndicator();
       debouncedScroll.current?.();
     }
+    updatePageMask();
   };
   const realignRef = useRef(realign);
   realignRef.current = realign;
@@ -422,20 +532,22 @@ export function HTMLElementContainer() {
           if (textIsHighlighted.current || document.getSelection()?.toString()) {
             return
           }
+          if (settingsOpen.current) {
+            // A tap anywhere on the page just closes the menu.
+            setIsSettingsOpen(false);
+            return;
+          }
           if (settings.readingMode === 'paginated') {
             const containerBounds = outerContainer.current?.getBoundingClientRect();
-            const containerScroll = outerContainer.current?.scrollTop ?? 0;
             const touchWidth = containerBounds?.width ?? 0;
-            const pageHeight = (containerBounds?.height ?? 0);
-            const pageHeightBuffer = 10;
-            const edgeTouchSize = touchWidth / 4;
+            const edgeTouchSize = touchWidth / 3;
             const touchX = e.clientX - (containerBounds?.left ?? 0);
             if (touchX < edgeTouchSize) {
-              outerContainer.current?.scrollTo({ top: containerScroll - pageHeight + pageHeightBuffer });
+              turnPage(-1);
               return;
             }
             if (touchX > touchWidth - edgeTouchSize) {
-              outerContainer.current?.scrollTo({ top: containerScroll + pageHeight - pageHeightBuffer });
+              turnPage(1);
               return;
             }
           }
@@ -464,6 +576,9 @@ export function HTMLElementContainer() {
           />
         </ScrollPull>
       </div>
+      {/* Paginated mode: hide lines cut off by the top or bottom edge of the page. */}
+      <div ref={pageMaskTop} className='hidden' style={{ ...pageMaskStyles, backgroundColor }} />
+      <div ref={pageMaskBottom} className='hidden' style={{ ...pageMaskStyles, backgroundColor }} />
       <div style={backgroundStyles}/>
     </>
   , [settings, html, ...Object.values(safeArea)]);

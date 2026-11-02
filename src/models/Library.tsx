@@ -70,17 +70,22 @@ export default class Library {
         });
     }
 
-    static async promptToDeleteBook(filePath: string): Promise<boolean> {
+    static async promptToDeleteBook(filePath: string, title?: string): Promise<boolean> {
+        const book = Library.books[filePath];
         const result = await ActionSheet.showActions({
+            title: title ?? filePath.split('/').pop(),
+            message: book?.builtIn
+                ? 'This sample book will be hidden from your library.'
+                : 'The file will be deleted from this device.',
             options: [{
-                title: 'Delete From Library',
+                title: 'Remove from Library',
+                style: ActionSheetButtonStyle.Destructive,
             }, {
                 title: 'Cancel',
                 style: ActionSheetButtonStyle.Cancel,
             }],
         });
-        if (result.index === 0) {
-            const book = Library.books[filePath];
+        if (result.index === 0 && book) {
             if (book.builtIn) {
                 // Built-in books can't be removed from the app bundle; the
                 // stats remember that they're hidden, so they must be kept.

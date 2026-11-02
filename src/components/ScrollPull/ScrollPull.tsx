@@ -1,6 +1,6 @@
 import { useRef, useState } from "react"
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faArrowDown, faArrowUp, faSpinner } from "@fortawesome/free-solid-svg-icons"
+import { faArrowDown, faArrowUp } from "@fortawesome/free-solid-svg-icons"
 
 interface Coordinate {
     x: number,
@@ -79,7 +79,7 @@ export function ScrollPull({ children, pulledUp, pulledDown, atBeginning, atEnd 
             <div
                 id='top-section'
                 ref={topSection}
-                className='block z-20 text-center h-12 justify-center'
+                className='flex flex-row z-20 items-center justify-center gap-2 h-12 font-sans text-sm opacity-60'
                 style={{
                     marginTop: `calc(-3rem + ${topMargin}px - var(--sat))`,
                     marginBottom: `var(--sat)`,
@@ -88,15 +88,8 @@ export function ScrollPull({ children, pulledUp, pulledDown, atBeginning, atEnd 
             >
                 { !atBeginning && 
                     <>
-                        <FontAwesomeIcon
-                            icon={topMargin < dragActionLimit ? faArrowDown : faSpinner}
-                            className={topMargin < dragActionLimit ? 'animate-bounce' : 'animate-spin'}
-                        />
-                        <span className='px-4'>Previous Chapter</span>
-                        <FontAwesomeIcon
-                            icon={topMargin < dragActionLimit ? faArrowDown : faSpinner}
-                            className={topMargin < dragActionLimit ? 'animate-bounce' : 'animate-spin'}
-                        />
+                        <FontAwesomeIcon icon={faArrowDown} className='text-xs' />
+                        <span>{topMargin < dragActionLimit ? 'Pull down for previous chapter' : 'Release for previous chapter'}</span>
                     </>
                 }
             </div>
@@ -104,33 +97,30 @@ export function ScrollPull({ children, pulledUp, pulledDown, atBeginning, atEnd 
             <div
                 id='bottom-section'
                 ref={bottomSection}
-                className='block z-20 text-center h-12 justify-center'
+                className='flex flex-row z-20 items-center justify-center h-16 font-sans text-sm'
                 style={{
                     marginTop: `calc(${bottomMargin}px)`,
                     transition: !bottomMargin ? 'margin-top 0.25s ease-out' : undefined,
                 }}
             >
-                { !atEnd &&
-                    <>
-                        <FontAwesomeIcon
-                            icon={bottomMargin < dragActionLimit ? faArrowUp : faSpinner}
-                            className={bottomMargin < dragActionLimit ? 'animate-bounce' : 'animate-spin'}
-                        />
-                        <span
-                            className='px-4 underline'
-                            onClick={e => {
-                                e.stopPropagation();
-                                pulledDown?.();
-                            }}
-                        >
-                            Next Chapter
-                        </span>
-                        <FontAwesomeIcon
-                            icon={bottomMargin < dragActionLimit ? faArrowUp : faSpinner}
-                            className={bottomMargin < dragActionLimit ? 'animate-bounce' : 'animate-spin'}
-                        />
-                    </>
-                }
+                { atEnd ? (
+                    <span className='opacity-50'>End of book</span>
+                ) : bottomMargin >= dragActionLimit ? (
+                    <span className='opacity-60'>Release for next chapter</span>
+                ) : (
+                    <button
+                        type='button'
+                        className='pressable flex flex-row items-center gap-2 h-10 px-5 rounded-full opacity-70'
+                        style={{ boxShadow: 'inset 0 0 0 1px currentColor' }}
+                        onClick={e => {
+                            e.stopPropagation();
+                            pulledDown?.();
+                        }}
+                    >
+                        Next chapter
+                        <FontAwesomeIcon icon={faArrowUp} className='text-xs rotate-90' />
+                    </button>
+                )}
             </div>
         </div>
     )
