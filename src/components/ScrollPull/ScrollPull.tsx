@@ -81,8 +81,8 @@ export function ScrollPull({ children, pulledUp, pulledDown, atBeginning, atEnd 
                 ref={topSection}
                 className='block z-20 text-center h-12 justify-center'
                 style={{
-                    marginTop: `calc(-3rem + ${topMargin}px - env(safe-area-inset-top))`,
-                    marginBottom: `env(safe-area-inset-top)`,
+                    marginTop: `calc(-3rem + ${topMargin}px - var(--sat))`,
+                    marginBottom: `var(--sat)`,
                     transition: !topMargin ? 'margin-top 0.25s ease-out' : undefined,
                 }}
             >

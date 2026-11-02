@@ -14,15 +14,22 @@ export function KeyboardProvider({ children }: React.ComponentProps<any>) {
     const [keyboardHeight, setKeyboardHeight] = useState(0);
 
     useEffect(() => {
-        if (Capacitor.isNativePlatform()) {
+        if (!Capacitor.isNativePlatform()) {
+            return;
+        }
+        // Register once (this previously ran after every render, piling up listeners).
+        const listeners = [
             Keyboard.addListener('keyboardWillShow', info => {
                 setKeyboardHeight(info.keyboardHeight);
-            });
+            }),
             Keyboard.addListener('keyboardWillHide', () => {
                 setKeyboardHeight(0);
-            });
-        }
-    })
+            }),
+        ];
+        return () => {
+            listeners.forEach(async listener => (await listener).remove());
+        };
+    }, [])
     
     return (
         <KeyboardContext.Provider value={{

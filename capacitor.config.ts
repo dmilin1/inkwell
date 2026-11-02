@@ -5,7 +5,6 @@ const config: CapacitorConfig = {
   appName: 'inkwell',
   webDir: 'dist',
   backgroundColor: '#282b41',
-  bundledWebRuntime: false,
   // server: {
   //   url: 'http://192.168.50.143:5173',
   //   cleartext: true
@@ -16,6 +15,12 @@ const config: CapacitorConfig = {
     },
     SplashScreen: {
       launchAutoHide: false,
+    },
+    SystemBars: {
+      // Android: inject --safe-area-inset-* CSS variables (used via --sat etc. in index.css).
+      insetsHandling: 'css',
+      // index.html uses viewport-fit=cover; hinting it avoids a layout jump on launch.
+      initialViewportFitValueHint: 'cover',
     },
   },
   ios: {

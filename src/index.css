@@ -16,10 +16,16 @@
   -moz-osx-font-smoothing: grayscale;
   -webkit-text-size-adjust: 100%;
 
-  --sat: env(safe-area-inset-top);
-  --sar: env(safe-area-inset-right);
-  --sab: env(safe-area-inset-bottom);
-  --sal: env(safe-area-inset-left);
+  /*
+   * Safe-area insets. On Android, Capacitor 8 (SystemBars, insetsHandling: 'css')
+   * injects --safe-area-inset-* with correct values even on WebViews where env()
+   * is wrong; elsewhere (iOS, web) fall back to env(). Always use these variables
+   * rather than env() directly.
+   */
+  --sat: var(--safe-area-inset-top, env(safe-area-inset-top, 0px));
+  --sar: var(--safe-area-inset-right, env(safe-area-inset-right, 0px));
+  --sab: var(--safe-area-inset-bottom, env(safe-area-inset-bottom, 0px));
+  --sal: var(--safe-area-inset-left, env(safe-area-inset-left, 0px));
 }
 
 html > body {
@@ -27,7 +33,10 @@ html > body {
 }
 
 html > body > #root {
-  height: calc(100vh - env(safe-area-inset-top));
+  height: calc(100vh - var(--sat));
+  /* Keep content clear of side insets (camera cutouts / navigation bars in landscape). */
+  padding-left: var(--sal);
+  padding-right: var(--sar);
 }
 
 html > body, html > body > #root {
@@ -43,19 +52,19 @@ div {
 }
 
 .padding-safe-area-top {
-  padding-top: env(safe-area-inset-top);
+  padding-top: var(--sat);
 }
 
 .padding-safe-area-bottom {
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: var(--sab);
 }
 
 .margin-safe-area-top {
-  margin-top: env(safe-area-inset-top);
+  margin-top: var(--sat);
 }
 
 .margin-safe-area-bottom {
-  margin-bottom: env(safe-area-inset-bottom);
+  margin-bottom: var(--sab);
 }
 
 ::-webkit-scrollbar {
