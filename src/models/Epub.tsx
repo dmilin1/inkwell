@@ -145,11 +145,23 @@ export default class Epub extends Ebook {
         // Done before the nodes are inserted, so the browser never requests the relative paths.
         this.revokeObjectUrls();
         const mediaTypes = new Map(Object.values(pkg.manifest).map(item => [item.path, item.mediaType]));
+        // `srcset` (and <picture> sources) would win over the rewritten `src` and
+        // point at paths that don't exist outside the zip. Use the sharpest
+        // candidate from the zip instead.
+        body.querySelectorAll('picture source').forEach(source => source.remove());
         await Promise.all([...body.querySelectorAll('img, image')].map(async elem => {
             const isImg = elem.localName === 'img';
-            const src = isImg
+            let src = isImg
                 ? elem.getAttribute('src')
                 : elem.getAttribute('href') ?? elem.getAttributeNS(XLINK_NS, 'href');
+            if (isImg && elem.hasAttribute('srcset')) {
+                const best = sharpestCandidate(elem.getAttribute('srcset')!);
+                if (best && !isExternalUrl(best) && findFile(pkg, resolvePath(chapter.path, best))) {
+                    src = best;
+                }
+                elem.removeAttribute('srcset');
+                elem.removeAttribute('sizes');
+            }
             if (!src || isExternalUrl(src)) {
                 return;
             }
@@ -367,6 +379,25 @@ function parseXHTML(text: string): Document {
 
 function isExternalUrl(href: string): boolean {
     return /^[a-z][a-z0-9+.-]*:/i.test(href);
+}
+
+/**
+ * The URL of the highest-resolution candidate in a `srcset`, e.g.
+ * "a.png 1x, a-2x.png 2x" -> "a-2x.png". Width descriptors ("640w") count as larger.
+ */
+export function sharpestCandidate(srcset: string): string | undefined {
+    let best: { url: string, size: number } | undefined;
+    for (const candidate of srcset.split(',')) {
+        const [url, descriptor = '1x'] = candidate.trim().split(/\s+/);
+        if (!url) {
+            continue;
+        }
+        const size = parseFloat(descriptor) * (descriptor.endsWith('w') ? 1 : 1000) || 1000;
+        if (!best || size > best.size) {
+            best = { url, size };
+        }
+    }
+    return best?.url;
 }
 
 function safeDecode(str: string): string {

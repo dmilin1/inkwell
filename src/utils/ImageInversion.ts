@@ -32,9 +32,17 @@ function isLightLineArt(src: string): Promise<boolean> {
             const pixels = context.getImageData(0, 0, width, height).data;
             let light = 0;
             let colorful = 0;
+            let transparent = 0;
+            // Alpha-weighted luminance of whatever is drawn (the "ink").
+            let inkWeight = 0;
+            let inkLuminance = 0;
             const total = width * height;
             for (let i = 0; i < pixels.length; i += 4) {
-                if (pixels[i + 3] < 26) {
+                const alpha = pixels[i + 3] / 255;
+                if (alpha < 0.9) {
+                    transparent++;
+                }
+                if (alpha < 0.1) {
                     light++; // Transparent: the page shows through, i.e. "paper".
                     continue;
                 }
@@ -45,14 +53,25 @@ function isLightLineArt(src: string): Promise<boolean> {
                 const min = Math.min(r, g, b);
                 const luminance = 0.2126 * r + 0.7152 * g + 0.0722 * b;
                 const saturation = max === 0 ? 0 : (max - min) / max;
-                if (luminance > 0.8) {
+                inkWeight += alpha;
+                inkLuminance += alpha * luminance;
+                // As it would look on white paper.
+                if (alpha * luminance + (1 - alpha) > 0.8) {
                     light++;
                 }
                 if (saturation > 0.35 && luminance > 0.15) {
                     colorful++;
                 }
             }
-            return light / total > 0.6 && colorful / total < 0.15;
+            if (colorful / total >= 0.15) {
+                return false;
+            }
+            // Dark ink on transparency (e.g. engravings) all but disappears on a
+            // dark page, however dense the drawing is.
+            if (transparent / total > 0.2 && inkWeight > 0 && inkLuminance / inkWeight < 0.4) {
+                return true;
+            }
+            return light / total > 0.6;
         })().catch(() => false);
         analysis.set(src, result);
     }
