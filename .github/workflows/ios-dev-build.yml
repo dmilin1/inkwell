@@ -1,30 +1,46 @@
 # Cloud build of Inkwell on GitHub-hosted macOS runners.
 #
-# Builds a side-by-side "Inkwell Dev" variant with its own bundle ID, so it
-# installs next to the App Store version without touching its data, and uploads
-# it to TestFlight (internal testing only).
+# Pushes only check that the iOS and Android apps compile. Nothing is uploaded.
 #
-# Until the signing secrets below are configured, the iOS job only checks that
-# the app compiles (unsigned), and nothing is uploaded.
+# Uploads are manual: Actions tab -> "iOS build" -> "Run workflow", pick the
+# branch and what to build:
 #
-# Required repository secrets for TestFlight uploads:
+#   dev         "Inkwell Dev", with its own bundle ID so it installs next to the
+#               App Store version without touching its data. Uploaded to
+#               TestFlight for internal testing only.
+#
+#   production  The real App Store app, at MARKETING_VERSION from the Xcode
+#               project. Uploaded to App Store Connect, where you attach it to
+#               the new version and submit it for review yourself.
+#
+# Repository secrets used by uploads:
 #   IOS_DIST_CERT_P12           base64 of an "Apple Distribution" certificate + private key (.p12)
 #   IOS_DIST_CERT_PASSWORD      password of that .p12
 #   IOS_DEV_PROFILE             base64 of an App Store provisioning profile for DEV_BUNDLE_ID
+#   IOS_PROD_PROFILE            base64 of an App Store provisioning profile for APP_STORE_BUNDLE_ID
 #   ASC_KEY_ID                  App Store Connect API key ID ("App Manager" role is enough)
 #   ASC_ISSUER_ID               App Store Connect API issuer ID
 #   ASC_KEY_P8                  contents of the AuthKey_XXXXXX.p8 file
 
-name: iOS dev build
+name: iOS build
 
 on:
   push:
-    branches: [ios27-iphone-duo]
+    branches: [master, ios27-iphone-duo]
   workflow_dispatch:
+    inputs:
+      variant:
+        description: What to build and upload
+        type: choice
+        options:
+          - dev
+          - production
+        default: dev
 
 concurrency:
-  group: ios-dev-build-${{ github.ref }}
-  cancel-in-progress: true
+  group: ios-build-${{ github.ref }}-${{ inputs.variant || 'check' }}
+  # Newer pushes replace older compile checks; uploads always run to the end.
+  cancel-in-progress: ${{ github.event_name == 'push' }}
 
 env:
   TEAM_ID: 4L9GV2HTTC
@@ -39,9 +55,27 @@ jobs:
     timeout-minutes: 60
     env:
       DEVELOPER_DIR: /Applications/Xcode_27.1.app/Contents/Developer
-      HAS_SIGNING: ${{ secrets.IOS_DIST_CERT_P12 != '' && secrets.IOS_DEV_PROFILE != '' && secrets.ASC_KEY_P8 != '' }}
+      # 'check' for pushes (compile only), otherwise the variant picked for a manual run.
+      VARIANT: ${{ github.event_name == 'workflow_dispatch' && inputs.variant || 'check' }}
     steps:
       - uses: actions/checkout@v5
+
+      - name: Check upload prerequisites
+        if: env.VARIANT != 'check'
+        env:
+          HAS_SECRETS: ${{ secrets.IOS_DIST_CERT_P12 != '' && secrets.ASC_KEY_P8 != '' && (inputs.variant == 'production' && secrets.IOS_PROD_PROFILE != '' || inputs.variant == 'dev' && secrets.IOS_DEV_PROFILE != '') }}
+        run: |
+          set -euo pipefail
+          if [ "$HAS_SECRETS" != "true" ]; then
+            echo "::error::A $VARIANT upload needs the signing secrets listed in the header of .github/workflows/ios-dev-build.yml (production also needs IOS_PROD_PROFILE)."
+            exit 1
+          fi
+          VERSIONS=$(grep -oE 'MARKETING_VERSION = [^;]+;' ios/App/App.xcodeproj/project.pbxproj | sort -u)
+          if [ "$(printf '%s\n' "$VERSIONS" | grep -c .)" != 1 ]; then
+            echo "::error::Debug and Release disagree on MARKETING_VERSION: $VERSIONS"
+            exit 1
+          fi
+          echo "Building $VARIANT from $GITHUB_REF_NAME at $GITHUB_SHA, $VERSIONS"
 
       - uses: actions/setup-node@v5
         with:
@@ -64,10 +98,10 @@ jobs:
           xcodebuild -version
           pod --version
 
-      # ---- Unsigned compile check (when signing secrets aren't configured) ----
+      # ---- Unsigned compile check (pushes) ----
 
       - name: Compile check (unsigned)
-        if: env.HAS_SIGNING != 'true'
+        if: env.VARIANT == 'check'
         run: |
           set -o pipefail
           xcodebuild build \
@@ -77,18 +111,14 @@ jobs:
             -destination 'generic/platform=iOS' \
             CODE_SIGNING_ALLOWED=NO
 
-      - name: Note about TestFlight uploads
-        if: env.HAS_SIGNING != 'true'
-        run: echo "::notice::Signing secrets are not configured, so this run only checked that the app compiles. See the header of .github/workflows/ios-dev-build.yml."
-
-      # ---- Signed build + TestFlight upload ----
+      # ---- Signed build + upload (manual runs) ----
 
       - name: Install signing certificate and provisioning profile
-        if: env.HAS_SIGNING == 'true'
+        if: env.VARIANT != 'check'
         env:
           IOS_DIST_CERT_P12: ${{ secrets.IOS_DIST_CERT_P12 }}
           IOS_DIST_CERT_PASSWORD: ${{ secrets.IOS_DIST_CERT_PASSWORD }}
-          IOS_DEV_PROFILE: ${{ secrets.IOS_DEV_PROFILE }}
+          PROFILE_BASE64: ${{ inputs.variant == 'production' && secrets.IOS_PROD_PROFILE || secrets.IOS_DEV_PROFILE }}
         run: |
           set -euo pipefail
           KEYCHAIN="$RUNNER_TEMP/signing.keychain-db"
@@ -104,29 +134,31 @@ jobs:
           echo "Signing identities:"
           security find-identity -v -p codesigning "$KEYCHAIN"
 
-          printf '%s' "$IOS_DEV_PROFILE" | base64 --decode > "$RUNNER_TEMP/dev.mobileprovision"
-          security cms -D -i "$RUNNER_TEMP/dev.mobileprovision" > "$RUNNER_TEMP/profile.plist"
+          if [ "$VARIANT" = production ]; then BUNDLE_ID="$APP_STORE_BUNDLE_ID"; else BUNDLE_ID="$DEV_BUNDLE_ID"; fi
+          printf '%s' "$PROFILE_BASE64" | base64 --decode > "$RUNNER_TEMP/app.mobileprovision"
+          security cms -D -i "$RUNNER_TEMP/app.mobileprovision" > "$RUNNER_TEMP/profile.plist"
           PROFILE_UUID=$(/usr/libexec/PlistBuddy -c 'Print :UUID' "$RUNNER_TEMP/profile.plist")
           PROFILE_NAME=$(/usr/libexec/PlistBuddy -c 'Print :Name' "$RUNNER_TEMP/profile.plist")
           PROFILE_APP_ID=$(/usr/libexec/PlistBuddy -c 'Print :Entitlements:application-identifier' "$RUNNER_TEMP/profile.plist")
-          if [ "$PROFILE_APP_ID" != "$TEAM_ID.$DEV_BUNDLE_ID" ]; then
-            echo "::error::The provisioning profile is for '$PROFILE_APP_ID', expected '$TEAM_ID.$DEV_BUNDLE_ID'."
+          if [ "$PROFILE_APP_ID" != "$TEAM_ID.$BUNDLE_ID" ]; then
+            echo "::error::The provisioning profile is for '$PROFILE_APP_ID', expected '$TEAM_ID.$BUNDLE_ID'."
             exit 1
           fi
           for dir in "$HOME/Library/MobileDevice/Provisioning Profiles" "$HOME/Library/Developer/Xcode/UserData/Provisioning Profiles"; do
             mkdir -p "$dir"
-            cp "$RUNNER_TEMP/dev.mobileprovision" "$dir/$PROFILE_UUID.mobileprovision"
+            cp "$RUNNER_TEMP/app.mobileprovision" "$dir/$PROFILE_UUID.mobileprovision"
           done
           echo "Installed profile '$PROFILE_NAME' ($PROFILE_UUID)"
           {
             echo "KEYCHAIN=$KEYCHAIN"
             echo "PROFILE_NAME=$PROFILE_NAME"
+            echo "BUNDLE_ID=$BUNDLE_ID"
           } >> "$GITHUB_ENV"
 
-      - name: Configure the side-by-side "Inkwell Dev" variant
-        if: env.HAS_SIGNING == 'true'
-        # Only this CI checkout is modified; the committed project (App Store
-        # build) is unchanged. These settings exist only in the App target.
+      - name: Configure signing, build number and variant
+        if: env.VARIANT != 'check'
+        # Only this CI checkout is modified. These settings exist only in the
+        # App target. Dev builds also get their own bundle ID and name.
         env:
           BUILD_NUMBER: ${{ github.run_number }}.${{ github.run_attempt }}
         run: |
@@ -144,15 +176,19 @@ jobs:
           done
           sed -i '' \
             -e "s|CODE_SIGN_STYLE = Automatic;|CODE_SIGN_STYLE = Manual; CODE_SIGN_IDENTITY = \"Apple Distribution\"; PROVISIONING_PROFILE_SPECIFIER = \"$PROFILE_NAME\";|" \
-            -e "s|PRODUCT_BUNDLE_IDENTIFIER = $APP_STORE_BUNDLE_ID;|PRODUCT_BUNDLE_IDENTIFIER = $DEV_BUNDLE_ID;|" \
+            -e "s|PRODUCT_BUNDLE_IDENTIFIER = $APP_STORE_BUNDLE_ID;|PRODUCT_BUNDLE_IDENTIFIER = $BUNDLE_ID;|" \
             -e "s|CURRENT_PROJECT_VERSION = 1;|CURRENT_PROJECT_VERSION = $BUILD_NUMBER;|" \
             "$PBXPROJ"
           plutil -lint "$PBXPROJ"
-          plutil -replace CFBundleDisplayName -string "$DEV_DISPLAY_NAME" ios/App/App/Info.plist
-          echo "Bundle ID: $DEV_BUNDLE_ID, name: $DEV_DISPLAY_NAME, build: $BUILD_NUMBER"
+          if [ "$VARIANT" = dev ]; then
+            plutil -replace CFBundleDisplayName -string "$DEV_DISPLAY_NAME" ios/App/App/Info.plist
+          fi
+          VERSION=$(grep -m1 -oE 'MARKETING_VERSION = [^;]+' "$PBXPROJ" | sed 's/.*= //')
+          echo "BUILD_LABEL=$VERSION ($BUILD_NUMBER)" >> "$GITHUB_ENV"
+          echo "Variant: $VARIANT, bundle ID: $BUNDLE_ID, name: $(plutil -extract CFBundleDisplayName raw ios/App/App/Info.plist), version: $VERSION, build: $BUILD_NUMBER"
 
       - name: Archive
-        if: env.HAS_SIGNING == 'true'
+        if: env.VARIANT != 'check'
         run: |
           set -o pipefail
           xcodebuild archive \
@@ -163,8 +199,8 @@ jobs:
             -archivePath "$RUNNER_TEMP/Inkwell.xcarchive" \
             OTHER_CODE_SIGN_FLAGS="--keychain $KEYCHAIN"
 
-      - name: Upload to TestFlight
-        if: env.HAS_SIGNING == 'true'
+      - name: Upload to App Store Connect
+        if: env.VARIANT != 'check'
         env:
           ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
           ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
@@ -172,6 +208,8 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "$ASC_KEY_P8" > "$RUNNER_TEMP/AuthKey.p8"
+          # Dev builds stay internal; release builds must be usable for review.
+          if [ "$VARIANT" = dev ]; then INTERNAL_ONLY=true; else INTERNAL_ONLY=false; fi
           cat > "$RUNNER_TEMP/ExportOptions.plist" <<EOF
           <?xml version="1.0" encoding="UTF-8"?>
           <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -184,10 +222,10 @@ jobs:
             <key>signingCertificate</key><string>Apple Distribution</string>
             <key>provisioningProfiles</key>
             <dict>
-              <key>$DEV_BUNDLE_ID</key><string>$PROFILE_NAME</string>
+              <key>$BUNDLE_ID</key><string>$PROFILE_NAME</string>
             </dict>
             <key>manageAppVersionAndBuildNumber</key><false/>
-            <key>testFlightInternalTestingOnly</key><true/>
+            <key>testFlightInternalTestingOnly</key><$INTERNAL_ONLY/>
             <key>uploadSymbols</key><true/>
           </dict>
           </plist>
@@ -201,13 +239,17 @@ jobs:
             -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8" \
             -authenticationKeyID "$ASC_KEY_ID" \
             -authenticationKeyIssuerID "$ASC_ISSUER_ID"
-          echo "::notice::Uploaded $DEV_DISPLAY_NAME build ${{ github.run_number }}.${{ github.run_attempt }} to TestFlight. It appears in App Store Connect after processing (usually 5-15 minutes)."
+          if [ "$VARIANT" = production ]; then
+            echo "::notice::Uploaded Inkwell $BUILD_LABEL. Once it finishes processing (usually 5-15 minutes), select it on the version page in App Store Connect and submit it for review."
+          else
+            echo "::notice::Uploaded $DEV_DISPLAY_NAME $BUILD_LABEL to TestFlight. It appears after processing (usually 5-15 minutes)."
+          fi
 
       - name: Clean up signing files
         if: always()
         run: |
           if [ -n "${KEYCHAIN:-}" ]; then security delete-keychain "$KEYCHAIN" || true; fi
-          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/dev.mobileprovision" "$RUNNER_TEMP/profile.plist"
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/app.mobileprovision" "$RUNNER_TEMP/profile.plist"
 
   android:
     # Compile check only: the Android project was also migrated (Capacitor 8,
